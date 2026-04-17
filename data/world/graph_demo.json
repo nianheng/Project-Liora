@@ -1,0 +1,82 @@
+{
+  "meta": {
+    "name": "planetfall_demo_graph",
+    "starting_location_id": "crash_canyon"
+  },
+  "locations": [
+    {
+      "id": "crash_canyon",
+      "name": "坠落峡谷",
+      "description": "逃生舱残骸卡在峡谷边缘，这里是通讯最稳定的地方，也是少女目前的临时安全点。",
+      "visited": true,
+      "tags": ["safe_zone", "signal_anchor"],
+      "clues": ["逃生舱黑匣子显示附近存在旧殖民设施", "峡谷北侧塔楼会周期性闪烁红光"],
+      "items": ["便携扫描仪", "应急绳索"],
+      "puzzles": ["修复长程通讯"],
+      "interactive_objects": ["逃生舱面板", "信号中继桩"],
+      "entry_requirements": []
+    },
+    {
+      "id": "wind_tower",
+      "name": "风蚀观测塔",
+      "description": "一座被沙暴切割过的观测塔，塔外升降梯断续通电，内部可能藏着星图或权限终端。",
+      "visited": false,
+      "tags": ["puzzle", "vertical_space"],
+      "clues": ["塔基门锁需要远程供电", "塔顶能增强扫描范围"],
+      "items": ["塔楼维护钥片"],
+      "puzzles": ["重启塔基供电", "解开升降梯权限"],
+      "interactive_objects": ["外部电闸", "塔基门锁"],
+      "entry_requirements": []
+    },
+    {
+      "id": "greenhouse_ruins",
+      "name": "温室遗迹",
+      "description": "半透明穹顶已经坍塌，内部仍残留受污染的植株和一些看似完好的培养槽。",
+      "visited": false,
+      "tags": ["biome", "resource"],
+      "clues": ["某些植物会对辐射发光", "培养槽终端记录着居民撤离前的最后日志"],
+      "items": ["生物样本盒", "净化滤芯"],
+      "puzzles": ["恢复培养槽供电"],
+      "interactive_objects": ["培养槽终端", "净化阀门"],
+      "entry_requirements": []
+    },
+    {
+      "id": "sunken_well",
+      "name": "地下水井",
+      "description": "向下螺旋的检修井道已被黑暗吞没，井底似乎有仍在工作的循环泵。",
+      "visited": false,
+      "tags": ["dark", "hazard"],
+      "clues": ["井下可以绕开地表风暴区域", "循环泵也许能为塔楼提供备用电源"],
+      "items": ["备用保险丝"],
+      "puzzles": ["修复井底循环泵"],
+      "interactive_objects": ["井口绞盘", "循环泵控制台"],
+      "entry_requirements": ["light_source"]
+    },
+    {
+      "id": "orbital_debris",
+      "name": "轨道碎片带",
+      "description": "一片坠落到地表的轨道碎片覆盖区，信号反射严重，但这里可能藏着少女身世相关的飞船残骸。",
+      "visited": false,
+      "tags": ["story", "high_risk"],
+      "clues": ["碎片涂装与少女逃生舱不完全一致", "辐射热点间隔移动，必须规划路线"],
+      "items": ["破损识别牌", "舰载存储模块"],
+      "puzzles": ["避开辐射热点", "解析飞船存储模块"],
+      "interactive_objects": ["坠落舱体", "辐射扫描标桩"],
+      "entry_requirements": ["env_suit"]
+    }
+  ],
+  "connections": [
+    {"id": "crash_to_tower", "from": "crash_canyon", "to": "wind_tower", "direction": "N", "travel_time": 6, "requirements": []},
+    {"id": "tower_to_crash", "from": "wind_tower", "to": "crash_canyon", "direction": "S", "travel_time": 6, "requirements": []},
+    {"id": "crash_to_greenhouse", "from": "crash_canyon", "to": "greenhouse_ruins", "direction": "E", "travel_time": 8, "requirements": []},
+    {"id": "greenhouse_to_crash", "from": "greenhouse_ruins", "to": "crash_canyon", "direction": "W", "travel_time": 8, "requirements": []},
+    {"id": "crash_to_well", "from": "crash_canyon", "to": "sunken_well", "direction": "SE", "travel_time": 10, "requirements": ["light_source"]},
+    {"id": "well_to_crash", "from": "sunken_well", "to": "crash_canyon", "direction": "NW", "travel_time": 10, "requirements": []},
+    {"id": "greenhouse_to_well", "from": "greenhouse_ruins", "to": "sunken_well", "direction": "S", "travel_time": 5, "requirements": ["light_source"]},
+    {"id": "well_to_greenhouse", "from": "sunken_well", "to": "greenhouse_ruins", "direction": "N", "travel_time": 5, "requirements": []},
+    {"id": "tower_to_orbit", "from": "wind_tower", "to": "orbital_debris", "direction": "NE", "travel_time": 12, "requirements": ["tower_power", "env_suit"]},
+    {"id": "orbit_to_tower", "from": "orbital_debris", "to": "wind_tower", "direction": "SW", "travel_time": 12, "requirements": []},
+    {"id": "greenhouse_to_orbit", "from": "greenhouse_ruins", "to": "orbital_debris", "direction": "NE", "travel_time": 9, "requirements": ["env_suit"]},
+    {"id": "orbit_to_greenhouse", "from": "orbital_debris", "to": "greenhouse_ruins", "direction": "SW", "travel_time": 9, "requirements": []}
+  ]
+}
