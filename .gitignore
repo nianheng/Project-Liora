@@ -7,6 +7,7 @@ export_presets.cfg
 # Local secrets / overrides
 *.local
 *.local.gd
+agent_runtime.local.json
 secrets/
 
 # Local tooling / exports outside the game repo

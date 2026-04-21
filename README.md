@@ -13,15 +13,13 @@ This public build is an early prototype intended to present the project's direct
 1. Open the project with Godot 4.6 or newer.
 2. Run the main scene from the editor.
 
-The public repository defaults to test mode instead of live LLM mode.
+The public repository defaults to test mode instead of live LLM mode unless a local runtime config file is present.
 
 ## Enable LLM Mode
 
-Edit `scripts/core/agent_runtime_config.gd` and set:
+1. Copy `agent_runtime.example.json` to `agent_runtime.local.json`.
+2. Fill in your real endpoint, key, and model.
 
-- `ACTIVE_MODE = MODE_LLM`
-- `API_BASE_URL`
-- `API_KEY`
-- `MODEL_NAME`
+The game will automatically use `agent_runtime.local.json` if it exists and contains valid LLM settings.
 
-Do not commit real API keys to a public repository.
+Do not commit `agent_runtime.local.json` or real API keys to a public repository.

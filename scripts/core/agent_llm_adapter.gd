@@ -222,7 +222,7 @@ func _build_request_payload_from_prompt(prompt_text: String) -> Dictionary:
 		}
 
 	return {
-		"model": RuntimeConfig.MODEL_NAME,
+		"model": RuntimeConfig.get_model_name(),
 		"temperature": 0.4,
 		"messages": [
 			{
@@ -277,7 +277,7 @@ func _perform_request(payload: Dictionary) -> Dictionary:
 	var body_text: String = JSON.stringify(payload)
 	var headers := PackedStringArray([
 		"Content-Type: application/json",
-		"Authorization: Bearer " + RuntimeConfig.API_KEY
+		"Authorization: Bearer " + RuntimeConfig.get_api_key()
 	])
 	var request_error: int = client.request(HTTPClient.METHOD_POST, path, headers, body_text)
 	if request_error != OK:
@@ -311,12 +311,12 @@ func _perform_request(payload: Dictionary) -> Dictionary:
 
 func _perform_request_async(host: Node, payload: Dictionary) -> Dictionary:
 	var request := HTTPRequest.new()
-	request.timeout = maxi(1, RuntimeConfig.REQUEST_TIMEOUT_MS / 1000)
+	request.timeout = maxi(1, RuntimeConfig.get_request_timeout_ms() / 1000)
 	host.add_child(request)
 
 	var headers := PackedStringArray([
 		"Content-Type: application/json",
-		"Authorization: Bearer " + RuntimeConfig.API_KEY
+		"Authorization: Bearer " + RuntimeConfig.get_api_key()
 	])
 	var body_text: String = JSON.stringify(payload)
 	var request_error: int = request.request(_build_endpoint_url(), headers, HTTPClient.METHOD_POST, body_text)
@@ -349,7 +349,7 @@ func _perform_request_async(host: Node, payload: Dictionary) -> Dictionary:
 
 
 func _wait_for_http_status(client: HTTPClient, accepted_statuses: Array[int]) -> bool:
-	var deadline: int = Time.get_ticks_msec() + RuntimeConfig.REQUEST_TIMEOUT_MS
+	var deadline: int = Time.get_ticks_msec() + RuntimeConfig.get_request_timeout_ms()
 	while Time.get_ticks_msec() < deadline:
 		client.poll()
 		if accepted_statuses.has(client.get_status()):
@@ -476,17 +476,17 @@ func _append_commands_from_payload(output: AgentOutput, commands_variant: Varian
 
 
 func _build_endpoint_url() -> String:
-	var base_url: String = RuntimeConfig.API_BASE_URL.trim_suffix("/")
+	var base_url: String = RuntimeConfig.get_api_base_url().trim_suffix("/")
 	if _is_gemini_model():
 		var gemini_base_url: String = base_url
 		if gemini_base_url.ends_with("/v1"):
 			gemini_base_url = gemini_base_url.trim_suffix("/v1")
-		return "%s/v1beta/models/%s%%3AgenerateContent" % [gemini_base_url, RuntimeConfig.MODEL_NAME]
+		return "%s/v1beta/models/%s%%3AgenerateContent" % [gemini_base_url, RuntimeConfig.get_model_name()]
 	return base_url + "/chat/completions"
 
 
 func _is_gemini_model() -> bool:
-	return RuntimeConfig.MODEL_NAME.begins_with("gemini-")
+	return RuntimeConfig.get_model_name().begins_with("gemini-")
 
 
 func _build_fallback_output(message: String, world_graph: WorldGraph) -> AgentOutput:

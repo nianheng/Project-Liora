@@ -1,0 +1,7 @@
+{
+  "mode": "llm",
+  "api_base_url": "https://your-api-endpoint.example/v1",
+  "api_key": "your-api-key-here",
+  "model_name": "gemini-3-flash-preview",
+  "request_timeout_ms": 60000
+}
