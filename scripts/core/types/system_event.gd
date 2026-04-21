@@ -3,6 +3,7 @@ class_name SystemEvent
 
 const TYPE_ARRIVED_AT_LOCATION := "arrived_at_location"
 const TYPE_EXPLORATION_IDLE := "exploration_idle"
+const TYPE_INSPECTION_RESULT := "inspection_result"
 
 var event_type: String = ""
 var summary_text: String = ""

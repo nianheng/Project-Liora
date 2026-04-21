@@ -9,6 +9,10 @@ func get_adapter_name() -> String:
 	return "llm"
 
 
+func is_async() -> bool:
+	return true
+
+
 func process_player_message(message: String, context, world_graph: WorldGraph):
 	var payload: Dictionary = build_request_payload_for_player_message(message, context, world_graph)
 	var response: Dictionary = _perform_request(payload)
@@ -27,6 +31,24 @@ func process_system_event(event, context, world_graph: WorldGraph):
 	return _parse_response_to_output(response.get("body", {}), event.summary_text, world_graph)
 
 
+func process_player_message_async(host: Node, message: String, context, world_graph: WorldGraph):
+	var payload: Dictionary = build_request_payload_for_player_message(message, context, world_graph)
+	var response: Dictionary = await _perform_request_async(host, payload)
+	if not bool(response.get("ok", false)):
+		push_warning("LLM request failed: %s" % JSON.stringify(response))
+		return _build_fallback_output(message, world_graph)
+	return _parse_response_to_output(response.get("body", {}), message, world_graph)
+
+
+func process_system_event_async(host: Node, event, context, world_graph: WorldGraph):
+	var payload: Dictionary = build_request_payload_for_system_event(event, context, world_graph)
+	var response: Dictionary = await _perform_request_async(host, payload)
+	if not bool(response.get("ok", false)):
+		push_warning("LLM system event request failed: %s" % JSON.stringify(response))
+		return _build_system_event_fallback_output(event, context, world_graph)
+	return _parse_response_to_output(response.get("body", {}), event.summary_text, world_graph)
+
+
 func build_system_prompt() -> String:
 	return "\n".join([
 		"You are the stranded girl agent in a sci-fi mystery exploration game.",
@@ -34,13 +56,22 @@ func build_system_prompt() -> String:
 		"Never claim world state changes unless the system already provided them.",
 		"Only emit commands from the allowed command schema.",
 		"If you decide to go somewhere, commands must be an array of objects, not strings.",
-		"Use only this command object shape: {\"type\": \"move_to_location\", \"target_location_id\": string, \"target_location_name\": string}.",
-		"Use exact ids and names from the known world locations list. Do not invent locations or other actions.",
+		"You may use two command shapes only:",
+		"1. {\"type\": \"move_to_location\", \"target_location_id\": string, \"target_location_name\": string}",
+		"2. {\"type\": \"act\", \"target_id\": string, \"action\": string, \"params\": object}",
+		"Use exact ids and names from the known world locations list and exact object ids from the provided object lists.",
+		"For act commands, choose only actions that appear in the target object's actions list.",
+		"Use inspect to check an object, pick_up to take an item, use to directly use a carried item such as food, use_item to apply a carried item to a target object, set_value to change an allowed target value, and open to open a door or hatch.",
+		"For set_value, params is required and must contain both key and value.",
+		"Valid example: {\"type\": \"act\", \"target_id\": \"some_object_id\", \"action\": \"set_value\", \"params\": {\"key\": \"some_state_key\", \"value\": 1}}",
+		"At the moment, use_item is mainly for applying a battery from inventory_objects to a device in current_location_objects.",
+		"When the system sends an inspection_result event, treat its payload as a one-time observation from the current inspection, not as a permanent hidden truth you can assume later without the event.",
+		"Do not invent locations, objects, actions, or hidden state.",
 		"If you are unsure, return an empty commands array.",
 		"The system owns all persistent state.",
 		"Return valid JSON only.",
 		"Schema:",
-		"{\"reply_text\": string, \"commands\": [{\"type\": string, \"target_location_id\": string, \"target_location_name\": string}]}"
+		"{\"reply_text\": string, \"commands\": [{\"type\": string, ...}]}"
 	])
 
 
@@ -60,19 +91,32 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 			location.get("name", "unknown")
 		])
 
+	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
+	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
+
 	return "\n".join([
 		"Protocol: agent_output.v1",
+		"Character name: %s" % context.character_name,
+		"Character profile: %s" % context.character_profile,
+		"Character status: %s" % JSON.stringify(context.character_status),
+		"Hunger prompt hint: %s" % context.hunger_prompt_hint,
 		"Time: %s" % context.format_clock(),
 		"Location: %s" % context.current_location_name,
 		"Agent state: %s" % context.agent_state,
 		"Short-term goal: %s" % context.short_term_goal,
 		"Recent dialogue summary: %s" % context.recent_dialogue_summary,
 		"Desired locations: %s" % ", ".join(context.desired_location_ids),
+		"Current location objects:",
+		"\n".join(current_location_object_lines),
+		"Inventory objects:",
+		"\n".join(inventory_object_lines),
 		"Known world locations (use exact id and exact name if issuing a move command):",
 		"\n".join(known_location_lines),
 		"Visible routes:",
 		"\n".join(route_lines),
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
+		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
+		"set_value reminder: always include params.key and params.value. Never omit key.",
 		"Player message: %s" % message
 	])
 
@@ -101,25 +145,56 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 			location.get("name", "unknown")
 		])
 
+	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
+	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
+
 	return "\n".join([
 		"Protocol: agent_output.v1",
 		"Trigger type: system_event",
 		"Trigger reason: %s" % str(context.trigger_reason),
+		"Character name: %s" % context.character_name,
+		"Character profile: %s" % context.character_profile,
+		"Character status: %s" % JSON.stringify(context.character_status),
+		"Hunger prompt hint: %s" % context.hunger_prompt_hint,
 		"Time: %s" % context.format_clock(),
 		"Location: %s" % context.current_location_name,
 		"Agent state: %s" % context.agent_state,
 		"Short-term goal: %s" % context.short_term_goal,
 		"Recent dialogue summary: %s" % context.recent_dialogue_summary,
 		"Desired locations: %s" % ", ".join(context.desired_location_ids),
+		"Current location objects:",
+		"\n".join(current_location_object_lines),
+		"Inventory objects:",
+		"\n".join(inventory_object_lines),
 		"Known world locations (use exact id and exact name if issuing a move command):",
 		"\n".join(known_location_lines),
 		"Visible routes:",
 		"\n".join(route_lines),
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
+		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
+		"set_value reminder: always include params.key and params.value. Never omit key.",
 		"System event type: %s" % str(event.event_type),
 		"System event summary: %s" % str(event.summary_text),
 		"System event payload: %s" % JSON.stringify(event.payload)
 	])
+
+
+func _format_visible_object_lines(objects: Array) -> Array[String]:
+	var lines: Array[String] = []
+	if objects.is_empty():
+		return ["- none"]
+	for object_variant in objects:
+		if typeof(object_variant) != TYPE_DICTIONARY:
+			continue
+		var object_data: Dictionary = object_variant
+		lines.append("- %s | %s | %s | actions=%s | state=%s" % [
+			str(object_data.get("id", "unknown")),
+			str(object_data.get("name", "unknown")),
+			str(object_data.get("type", "object")),
+			JSON.stringify(object_data.get("actions", [])),
+			JSON.stringify(object_data.get("state", {}))
+		])
+	return lines
 
 
 func _build_request_payload_from_prompt(prompt_text: String) -> Dictionary:
@@ -236,6 +311,45 @@ func _perform_request(payload: Dictionary) -> Dictionary:
 	}
 
 
+func _perform_request_async(host: Node, payload: Dictionary) -> Dictionary:
+	var request := HTTPRequest.new()
+	request.timeout = maxi(1, RuntimeConfig.REQUEST_TIMEOUT_MS / 1000)
+	host.add_child(request)
+
+	var headers := PackedStringArray([
+		"Content-Type: application/json",
+		"Authorization: Bearer " + RuntimeConfig.API_KEY
+	])
+	var body_text: String = JSON.stringify(payload)
+	var request_error: int = request.request(_build_endpoint_url(), headers, HTTPClient.METHOD_POST, body_text)
+	if request_error != OK:
+		request.queue_free()
+		return {"ok": false, "error": "request_failed", "request_error": request_error}
+
+	var response = await request.request_completed
+	request.queue_free()
+	if response.size() < 4:
+		return {"ok": false, "error": "invalid_response_tuple"}
+
+	var result_code: int = int(response[0])
+	var response_code: int = int(response[1])
+	var body: PackedByteArray = response[3]
+	if result_code != HTTPRequest.RESULT_SUCCESS:
+		return {"ok": false, "error": "http_request_failed", "result_code": result_code, "status_code": response_code}
+
+	var response_text: String = body.get_string_from_utf8()
+	var parsed: Variant = JSON.parse_string(response_text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {"ok": false, "error": "invalid_json", "raw_text": response_text, "status_code": response_code}
+
+	return {
+		"ok": response_code >= 200 and response_code < 300,
+		"status_code": response_code,
+		"body": parsed,
+		"raw_text": response_text
+	}
+
+
 func _wait_for_http_status(client: HTTPClient, accepted_statuses: Array[int]) -> bool:
 	var deadline: int = Time.get_ticks_msec() + RuntimeConfig.REQUEST_TIMEOUT_MS
 	while Time.get_ticks_msec() < deadline:
@@ -337,18 +451,30 @@ func _append_commands_from_payload(output: AgentOutput, commands_variant: Varian
 			continue
 
 		var command_dict: Dictionary = command_variant
-		if str(command_dict.get("type", "")) != AgentCommandScript.TYPE_MOVE_TO_LOCATION:
-			continue
-		var target_id: String = str(command_dict.get("target_location_id", ""))
-		var target_name: String = str(command_dict.get("target_location_name", ""))
-		if target_id.is_empty() and not target_name.is_empty():
-			var target_location: Dictionary = world_graph.get_location_by_name(target_name)
-			target_id = str(target_location.get("id", ""))
-		if target_name.is_empty() and not target_id.is_empty():
-			target_name = str(world_graph.get_location(target_id).get("name", target_id))
-		if target_id.is_empty():
-			continue
-		output.add_command(AgentCommandScript.move_to_location(target_id, target_name))
+		var command_type: String = str(command_dict.get("type", ""))
+		match command_type:
+			AgentCommandScript.TYPE_MOVE_TO_LOCATION:
+				var target_id: String = str(command_dict.get("target_location_id", ""))
+				var target_name: String = str(command_dict.get("target_location_name", ""))
+				if target_id.is_empty() and not target_name.is_empty():
+					var target_location: Dictionary = world_graph.get_location_by_name(target_name)
+					target_id = str(target_location.get("id", ""))
+				if target_name.is_empty() and not target_id.is_empty():
+					target_name = str(world_graph.get_location(target_id).get("name", target_id))
+				if target_id.is_empty():
+					continue
+				output.add_command(AgentCommandScript.move_to_location(target_id, target_name))
+			AgentCommandScript.TYPE_ACT:
+				var target_object_id: String = str(command_dict.get("target_id", ""))
+				var action_name: String = str(command_dict.get("action", ""))
+				if target_object_id.is_empty() or action_name.is_empty():
+					continue
+				var params: Dictionary = {}
+				if typeof(command_dict.get("params", {})) == TYPE_DICTIONARY:
+					params = (command_dict.get("params", {}) as Dictionary).duplicate(true)
+				output.add_command(AgentCommandScript.act(target_object_id, action_name, params))
+			_:
+				continue
 
 
 func _build_endpoint_url() -> String:
@@ -401,6 +527,9 @@ func _build_system_event_fallback_output(event, context, world_graph: WorldGraph
 			var idle_target_name: String = str(target_location.get("name", "unknown"))
 			output.reply_text = "It has been quiet for a while. I want to head toward %s." % idle_target_name
 			output.add_command(AgentCommandScript.move_to_location(idle_target_id, idle_target_name))
+			return output
+		SystemEvent.TYPE_INSPECTION_RESULT:
+			output.reply_text = "I checked it carefully. That gives me a better sense of what to try next."
 			return output
 	return output
 

@@ -1,3 +1,14 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+*.import
+export_presets.cfg
+
+# Local secrets / overrides
+*.local
+*.local.gd
+secrets/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

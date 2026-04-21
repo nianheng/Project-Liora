@@ -13,10 +13,16 @@ var world_time_seconds: int = 0
 var current_location_id: String = ""
 var current_location_name: String = ""
 var agent_state: String = ""
+var character_name: String = ""
+var character_profile: String = ""
+var character_status: Dictionary = {}
+var hunger_prompt_hint: String = ""
 
 var short_term_goal: String = ""
 var recent_dialogue_summary: String = ""
 var desired_location_ids: Array[String] = []
+var current_location_objects: Array[Dictionary] = []
+var inventory_objects: Array[Dictionary] = []
 
 var visible_routes: Array[Dictionary] = []
 var active_travel_route: Dictionary = {}

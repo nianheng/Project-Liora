@@ -50,6 +50,10 @@ func process_system_event(event, context, world_graph: WorldGraph):
 			output.reply_text = "It has been quiet for a while. I want to move toward %s and keep exploring." % idle_target_name
 			output.add_command(AgentCommandScript.move_to_location(idle_target_id, idle_target_name))
 			return output
+		SystemEvent.TYPE_INSPECTION_RESULT:
+			var inspected_name: String = str(event.payload.get("object_name", "这个东西"))
+			output.reply_text = "我已经仔细检查过 %s 了，这会帮助我判断下一步该怎么做。" % inspected_name
+			return output
 	return output
 
 
