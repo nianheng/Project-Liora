@@ -3,6 +3,7 @@ class_name AgentCommand
 
 const TYPE_MOVE_TO_LOCATION := "move_to_location"
 const TYPE_ACT := "act"
+const TYPE_SET_AUTO_EXPLORE_INTERVAL := "set_auto_explore_interval"
 
 const ACTION_INSPECT := "inspect"
 const ACTION_PICK_UP := "pick_up"
@@ -17,6 +18,7 @@ var target_location_name: String = ""
 var target_id: String = ""
 var action: String = ""
 var params: Dictionary = {}
+var seconds: int = 0
 
 
 static func move_to_location(location_id: String, location_name: String) -> AgentCommand:
@@ -58,3 +60,10 @@ static func set_value(target_object_id: String, key: String, value: Variant) -> 
 
 static func open(target_object_id: String) -> AgentCommand:
 	return act(target_object_id, ACTION_OPEN)
+
+
+static func set_auto_explore_interval(interval_seconds: int) -> AgentCommand:
+	var command := AgentCommand.new()
+	command.type = TYPE_SET_AUTO_EXPLORE_INTERVAL
+	command.seconds = interval_seconds
+	return command

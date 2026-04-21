@@ -17,12 +17,14 @@ var character_name: String = ""
 var character_profile: String = ""
 var character_status: Dictionary = {}
 var hunger_prompt_hint: String = ""
+var auto_explore_interval_seconds: int = 30
 
 var short_term_goal: String = ""
 var recent_dialogue_summary: String = ""
 var desired_location_ids: Array[String] = []
 var current_location_objects: Array[Dictionary] = []
 var inventory_objects: Array[Dictionary] = []
+var memory_entries: Array[String] = []
 
 var visible_routes: Array[Dictionary] = []
 var active_travel_route: Dictionary = {}

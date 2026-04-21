@@ -17,7 +17,6 @@ const ACCENT_WARM := Color("f4c16f")
 const TEXT := Color("ecf7ff")
 const TEXT_SOFT := Color("8ea7be")
 const ALERT := Color("ff8d74")
-const AUTO_EXPLORE_INTERVAL_SECONDS := 30
 const MAP_NODE_SIZE := Vector2(76, 34)
 const MAP_GRID_STEP := Vector2(64, 44)
 const MAP_CANVAS_MARGIN := Vector2(32, 26)
@@ -80,6 +79,7 @@ var satiety_decay_accumulator_seconds: int = 0
 var system_agent_desired_location_ids: Array[String] = []
 var system_agent_short_term_goal: String = "保持通讯稳定并评估周边区域。"
 var system_recent_dialogue_summary: String = "玩家与少女刚建立无线电联系，正在规划下一步探索。"
+var girl_memory_entries: Array[String] = []
 var selected_location_id := ""
 var unlocked_requirements: Array[String] = ["light_source"]
 var agent_state: String = "EXPLORING"
@@ -90,6 +90,7 @@ var travel_remaining_seconds: int = 0
 var active_travel_connection: Dictionary = {}
 var planned_route: Array[String] = []
 var seconds_since_last_agent_exchange: int = 0
+var auto_explore_interval_seconds: int = 240
 var agent_request_in_flight := false
 var pending_system_events: Array = []
 var show_system_messages := false
@@ -1221,7 +1222,6 @@ func finish_travel() -> void:
 	selected_location_id = world_graph.current_location_id
 	agent_state = "EXPLORING"
 	append_log("[系统] 移动完成，少女已抵达 %s。" % world_graph.get_current_location().get("name", "未知地点"))
-	append_log("[少女] 我到了。这里和地图上看到的大致一致，但现场细节更多。")
 	if not planned_route.is_empty():
 		planned_route.remove_at(0)
 	if planned_route.size() > 1:
@@ -1269,14 +1269,17 @@ func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYE
 		"mood": girl_mood
 	}
 	context.hunger_prompt_hint = get_hunger_prompt_hint()
+	context.auto_explore_interval_seconds = auto_explore_interval_seconds
 	context.short_term_goal = system_agent_short_term_goal
 	context.recent_dialogue_summary = system_recent_dialogue_summary
 	context.desired_location_ids = system_agent_desired_location_ids.duplicate()
+	context.memory_entries = girl_memory_entries.duplicate()
 	context.current_location_objects = build_visible_objects_for_holder(world_graph.current_location_id)
 	context.inventory_objects = build_visible_objects_for_holder("girl")
 	context.allowed_command_types.clear()
 	context.allowed_command_types.append(AgentCommandScript.TYPE_MOVE_TO_LOCATION)
 	context.allowed_command_types.append(AgentCommandScript.TYPE_ACT)
+	context.allowed_command_types.append(AgentCommandScript.TYPE_SET_AUTO_EXPLORE_INTERVAL)
 
 	if is_traveling():
 		context.current_location_id = travel_origin_id
@@ -1318,9 +1321,70 @@ func build_visible_objects_for_holder(holder_id: String) -> Array[Dictionary]:
 	return results
 
 
+func append_girl_memory_input(entry: String) -> void:
+	var normalized: String = entry.strip_edges()
+	if normalized.is_empty():
+		return
+	girl_memory_entries.append(normalized)
+
+
+func append_girl_memory_reply(reply_text: String, commands: Array = []) -> void:
+	var normalized_reply: String = reply_text.strip_edges()
+	var command_summary: String = JSON.stringify(_serialize_agent_commands(commands))
+	if normalized_reply.is_empty() and command_summary == "[]":
+		return
+	var lines: Array[String] = ["[少女回复]"]
+	if not normalized_reply.is_empty():
+		lines.append("文本: %s" % normalized_reply)
+	lines.append("指令集: %s" % command_summary)
+	girl_memory_entries.append("\n".join(lines))
+
+
+func build_player_memory_entry(message: String) -> String:
+	return "\n".join([
+		"[玩家输入]",
+		"玩家消息: %s" % message
+	])
+
+
+func build_system_event_memory_entry(event) -> String:
+	return "\n".join([
+		"[系统事件]",
+		"事件摘要: %s" % str(event.summary_text),
+		"事件载荷: %s" % JSON.stringify(event.payload)
+	])
+
+
+func _serialize_agent_commands(commands: Array) -> Array[Dictionary]:
+	var serialized: Array[Dictionary] = []
+	for command_variant in commands:
+		if command_variant == null:
+			continue
+		var command = command_variant as AgentCommand
+		if command == null:
+			continue
+		var payload: Dictionary = {
+			"type": command.type
+		}
+		if not command.target_location_id.is_empty():
+			payload["target_location_id"] = command.target_location_id
+		if not command.target_location_name.is_empty():
+			payload["target_location_name"] = command.target_location_name
+		if not command.target_id.is_empty():
+			payload["target_id"] = command.target_id
+		if not command.action.is_empty():
+			payload["action"] = command.action
+		if not command.params.is_empty():
+			payload["params"] = command.params.duplicate(true)
+		serialized.append(payload)
+	return serialized
+
+
 func apply_agent_output(agent_output, trigger_label: String) -> void:
 	if agent_output == null:
 		return
+	if not str(agent_output.reply_text).is_empty() or not agent_output.commands.is_empty():
+		append_girl_memory_reply(str(agent_output.reply_text), agent_output.commands)
 	if not str(agent_output.reply_text).is_empty():
 		append_log("%s %s" % [trigger_label, str(agent_output.reply_text)])
 	execute_command_set(agent_output.commands)
@@ -1345,8 +1409,8 @@ func dispatch_system_event(event) -> void:
 
 
 func _dispatch_system_event_async(event) -> void:
-	reset_agent_exchange_timer()
 	var context = build_agent_context(AgentContextScript.TRIGGER_SYSTEM_EVENT, str(event.event_type))
+	append_girl_memory_input(build_system_event_memory_entry(event))
 	append_log("[系统] 已触发 S->A 事件：%s" % str(event.summary_text))
 	system_recent_dialogue_summary = "最近一次系统事件：%s" % str(event.summary_text)
 	agent_request_in_flight = true
@@ -1356,6 +1420,7 @@ func _dispatch_system_event_async(event) -> void:
 	else:
 		agent_output = current_agent.process_system_event(event, context, world_graph)
 	agent_request_in_flight = false
+	reset_agent_exchange_timer()
 	apply_agent_output(agent_output, "[少女]")
 	process_pending_system_events()
 
@@ -1383,7 +1448,23 @@ func execute_command_set(commands: Array[AgentCommand]) -> Array[SystemResult]:
 				results.append(execute_move_command(command))
 			AgentCommandScript.TYPE_ACT:
 				results.append(execute_act_command(command))
+			AgentCommandScript.TYPE_SET_AUTO_EXPLORE_INTERVAL:
+				results.append(execute_set_auto_explore_interval_command(command))
 	return results
+
+
+func execute_set_auto_explore_interval_command(command: AgentCommand) -> SystemResult:
+	var requested_seconds: int = command.seconds
+	var clamped_seconds: int = clampi(requested_seconds, 10, 60)
+	var previous_seconds: int = auto_explore_interval_seconds
+	auto_explore_interval_seconds = clamped_seconds
+	append_log("[系统] 少女将自动探索间隔调整为 %d 秒。" % clamped_seconds)
+	var result := SystemResult.make(SystemResult.TYPE_AUTO_EXPLORE_INTERVAL_SET, true, "已更新自动探索间隔")
+	result.payload = {
+		"seconds_before": previous_seconds,
+		"seconds_after": clamped_seconds
+	}
+	return result
 
 
 func execute_act_command(command: AgentCommand) -> SystemResult:
@@ -1428,7 +1509,6 @@ func execute_inspect_action(target_id: String) -> SystemResult:
 	var summary: String = format_object_state_summary(object_data)
 	var inspection_description: String = build_inspection_description(target_id, object_data)
 	append_log("[系统] 少女检查了 %s。" % object_name)
-	append_log("[少女] %s" % inspection_description)
 	dispatch_system_event(SystemEventScript.make(
 		SystemEventScript.TYPE_INSPECTION_RESULT,
 		"少女刚刚检查了 %s。" % object_name,
@@ -1477,7 +1557,6 @@ func execute_pick_up_action(target_id: String) -> SystemResult:
 		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "拾取失败")
 
 	append_log("[系统] 少女拾取了 %s，已加入她的物品栏。" % object_name)
-	append_log("[少女] 我把 %s 收好了。" % object_name)
 	render_graph_data()
 	var result := SystemResult.make(SystemResult.TYPE_ITEM_PICKED_UP, true, "已拾取物品")
 	result.target_object_id = target_id
@@ -1509,7 +1588,6 @@ func execute_use_action(target_id: String) -> SystemResult:
 	render_graph_data()
 
 	append_log("[系统] 少女食用了 %s，饱食度从 %d 提升到 %d。" % [object_name, previous_satiety, girl_satiety])
-	append_log("[少女] 我把 %s 吃掉了，感觉稍微缓过来一点。" % object_name)
 
 	var result := SystemResult.make(SystemResult.TYPE_ITEM_USED, true, "已使用物品")
 	result.target_object_id = target_id
@@ -1571,7 +1649,6 @@ func execute_use_item_action(target_id: String, params: Dictionary) -> SystemRes
 	append_log("[系统] 少女将 %s 接入 %s，储能从 %d 提升到 %d。" % [item_name, target_name, previous_power, new_power])
 	if target_id == "obj_backup_power_01" and new_power >= 100:
 		append_log("[系统] 后备电力系统已充满，现在可以继续切换供电目标。")
-	append_log("[少女] 我已经把 %s 接到 %s 上了。设备现在有反应了。" % [item_name, target_name])
 
 	var result := SystemResult.make(SystemResult.TYPE_ITEM_APPLIED, true, "已将物品作用于目标对象")
 	result.target_object_id = target_id
@@ -1643,10 +1720,8 @@ func execute_backup_power_set_value(target_id: String, target_name: String, key:
 	append_log("[系统] 少女将 %s 的供电目标从 %d 切换为 %d。" % [target_name, previous_value, value])
 	if value == 4:
 		append_log("[系统] 舱门系统已恢复供电。")
-		append_log("[少女] 这个目标切过去之后，右前方那边好像真的有设备启动声。")
 	else:
 		append_log("[系统] 当前供电目标不是舱门系统，舱门仍未恢复供电。")
-		append_log("[少女] 切过去了，但我这边还没有听到舱门那边的明显反应。")
 
 	var result := SystemResult.make(SystemResult.TYPE_VALUE_SET, true, "已更新设备状态值")
 	result.target_object_id = target_id
@@ -1712,7 +1787,6 @@ func execute_open_action(target_id: String) -> SystemResult:
 	render_graph_data()
 
 	append_log("[系统] %s 已成功开启。" % target_name)
-	append_log("[少女] 门开了！外面的路终于通了。")
 	if target_id == "obj_airlock_door_01":
 		objective_label.text = "目标：穿过舱门离开飞船，开始对外部环境进行探索。"
 		system_agent_short_term_goal = "穿过已经开启的舱门，确认飞船外部环境是否安全。"
@@ -1792,11 +1866,6 @@ func start_travel_leg(next_location_id: String) -> void:
 	travel_remaining_seconds = travel_time * 60
 	active_travel_connection = world_graph.get_connection(origin_id, next_location_id)
 	agent_state = "MOVING"
-	append_log("[少女] 我现在从 %s 出发，前往 %s，预计需要 %d 分钟。" % [
-		world_graph.get_location(origin_id).get("name", "未知地点"),
-		destination.get("name", "未知地点"),
-		travel_time
-	])
 	render_graph_data()
 
 
@@ -1807,10 +1876,10 @@ func _on_send_pressed() -> void:
 	if agent_request_in_flight:
 		append_log("[系统] 少女仍在整理上一条请求的回应，请稍等一下再发送新消息。")
 		return
-	reset_agent_exchange_timer()
 	append_log("[玩家] " + message)
 	system_recent_dialogue_summary = "玩家最近一次输入：%s" % message
 	var context = build_agent_context()
+	append_girl_memory_input(build_player_memory_entry(message))
 	append_log("[系统] 已向少女同步世界信息：时间 %s，当前位置 %s。" % [
 		context.format_clock(),
 		context.current_location_name
@@ -1823,6 +1892,7 @@ func _on_send_pressed() -> void:
 		agent_output = current_agent.process_player_message(message, context, world_graph)
 	agent_request_in_flight = false
 	apply_agent_output(agent_output, "[少女]")
+	reset_agent_exchange_timer()
 	input_box.clear()
 	process_pending_system_events()
 
@@ -1862,6 +1932,8 @@ func advance_world_time(delta_seconds: int, emit_log: bool = false) -> void:
 	if is_traveling():
 		travel_remaining_seconds -= delta_seconds
 		seconds_since_last_agent_exchange = 0
+		render_location_detail()
+		render_clues()
 		if travel_remaining_seconds <= 0:
 			finish_travel()
 		elif emit_log:
@@ -1872,12 +1944,14 @@ func advance_world_time(delta_seconds: int, emit_log: bool = false) -> void:
 			])
 			render_graph_data()
 	else:
+		if agent_request_in_flight:
+			return
 		if agent_state == "EXPLORING":
 			seconds_since_last_agent_exchange += delta_seconds
-			if seconds_since_last_agent_exchange >= AUTO_EXPLORE_INTERVAL_SECONDS:
+			if seconds_since_last_agent_exchange >= auto_explore_interval_seconds:
 				var idle_event := SystemEventScript.make(
 					SystemEventScript.TYPE_EXPLORATION_IDLE,
-					"少女自主探索已持续五分钟，期间没有新的 U->A 或 S->A 交互。",
+					"少女已自主探索一段时间，准备继续推进当前行动。",
 					{
 						"elapsed_seconds": seconds_since_last_agent_exchange,
 						"location_id": world_graph.current_location_id,

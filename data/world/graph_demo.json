@@ -1,262 +1,262 @@
 {
   "meta": {
-    "name": "prologue_ship_ring",
-    "starting_location_id": "lounge"
+	"name": "prologue_ship_ring",
+	"starting_location_id": "lounge"
   },
   "locations": [
-    {
-      "id": "lounge",
-      "name": "休息室",
-      "map_position": { "x": -1, "y": 1 },
-      "description": "少女从休眠舱中醒来的地方。舱壁上还留着迫降时划出的伤痕，空气里混着消毒液、金属余温和封闭舱室特有的干燥气味。透过舷窗，只能看到一片陌生的灰白天空与被风沙覆盖的地表。",
-      "visited": true,
-      "tags": ["start", "safe_zone", "story_intro"],
-      "clues": [
-        "少女提到她已经在这艘迫降飞船里独自度过了三天。",
+	{
+	  "id": "lounge",
+	  "name": "休息室",
+	  "map_position": { "x": -1, "y": 1 },
+	  "description": "少女从休眠舱中醒来的地方。舱壁上还留着迫降时划出的伤痕，空气里混着消毒液、金属余温和封闭舱室特有的干燥气味。透过舷窗，只能看到一片陌生的灰白天空与被风沙覆盖的地表。",
+	  "visited": true,
+	  "tags": ["start", "safe_zone", "story_intro"],
+	  "clues": [
+		"少女提到她已经在这艘迫降飞船里独自度过了三天。",
         "舷窗外的天色与她记忆中的母星环境完全不同。"
-      ],
-      "items": [
-        "休眠舱诊断记录",
+	  ],
+	  "items": [
+		"休眠舱诊断记录",
         "应急毛毯"
-      ],
-      "puzzles": [
+	  ],
+	  "puzzles": [
         "确认飞船内其余舱室是否仍然可以通行"
-      ],
-      "interactive_objects": [
-        "休眠舱",
-        "舷窗",
+	  ],
+	  "interactive_objects": [
+		"休眠舱",
+		"舷窗",
         "简易无线电终端"
-      ],
-      "entry_requirements": []
-    },
-    {
-      "id": "bridge",
-      "name": "主控室",
-      "map_position": { "x": 0, "y": 2 },
-      "description": "飞船最靠近船头的位置。主屏幕已经熄灭，只剩下几盏低亮度状态灯偶尔闪烁。控制台表面覆着一层细灰，说明这里已经很久没有被完整重启过。",
-      "visited": false,
-      "tags": ["control", "ship_status"],
-      "clues": [
-        "主控台里似乎还保存着部分迫降前后的系统日志。",
+	  ],
+	  "entry_requirements": []
+	},
+	{
+	  "id": "bridge",
+	  "name": "主控室",
+	  "map_position": { "x": 0, "y": 2 },
+	  "description": "飞船最靠近船头的位置。主屏幕已经熄灭，只剩下几盏低亮度状态灯偶尔闪烁。控制台表面覆着一层细灰，说明这里已经很久没有被完整重启过。",
+	  "visited": false,
+	  "tags": ["control", "ship_status"],
+	  "clues": [
+		"主控台里似乎还保存着部分迫降前后的系统日志。",
         "导航模块可能记录了这颗星球附近的轨道扫描结果。"
-      ],
-      "items": [
-        "损坏的导航芯片",
+	  ],
+	  "items": [
+		"损坏的导航芯片",
         "飞船系统访问卡"
-      ],
-      "puzzles": [
-        "恢复主控台的最低功耗模式",
+	  ],
+	  "puzzles": [
+		"恢复主控台的最低功耗模式",
         "读取迫降前后的关键日志"
-      ],
-      "interactive_objects": [
-        "飞船控制台",
-        "主屏幕",
+	  ],
+	  "interactive_objects": [
+		"飞船控制台",
+		"主屏幕",
         "航线记录模块"
-      ],
-      "entry_requirements": []
-    },
-    {
-      "id": "pressure_room",
-      "name": "调压室",
-      "map_position": { "x": 1, "y": 1 },
-      "description": "连接飞船内部与外界的缓冲区域。墙上的气压表停在异常读数上，通往舱门的内侧通道还能通过，但控制面板因为断电没有任何响应。",
-      "visited": false,
-      "tags": ["airlock_control", "blocked_exit"],
-      "clues": [
-        "通往外界的舱门已经失去供电，暂时无法开启。",
+	  ],
+	  "entry_requirements": []
+	},
+	{
+	  "id": "pressure_room",
+	  "name": "调压室",
+	  "map_position": { "x": 1, "y": 1 },
+	  "description": "连接飞船内部与外界的缓冲区域。墙上的气压表停在异常读数上，通往舱门的内侧通道还能通过，但控制面板因为断电没有任何响应。",
+	  "visited": false,
+	  "tags": ["airlock_control", "blocked_exit"],
+	  "clues": [
+		"通往外界的舱门已经失去供电，暂时无法开启。",
         "控制面板旁边的检修口被拆开过，像是有人尝试手动恢复供电。"
-      ],
-      "items": [
-        "气压校准表",
+	  ],
+	  "items": [
+		"气压校准表",
         "断路保护器外壳"
-      ],
-      "puzzles": [
-        "确认舱门失电的原因",
+	  ],
+	  "puzzles": [
+		"确认舱门失电的原因",
         "为舱门恢复基础供电"
-      ],
-      "interactive_objects": [
-        "气压控制面板",
-        "检修口",
+	  ],
+	  "interactive_objects": [
+		"气压控制面板",
+		"检修口",
         "舱门内侧观察窗"
-      ],
-      "entry_requirements": []
-    },
-    {
-      "id": "engine_room",
-      "name": "动力室",
-      "map_position": { "x": 1, "y": 0 },
-      "description": "飞船后部右舷的动力舱。空气里仍残留着燃料和机油的味道，几组储能模块发出断断续续的嗡鸣。墙边有一个没有标签的电闸，旁边的工具架上还能找到电钻和基础维修工具。",
-      "visited": false,
-      "tags": ["power", "hazard", "tools"],
-      "clues": [
-        "飞船燃料还没有完全耗尽，但配电系统显然出了问题。",
+	  ],
+	  "entry_requirements": []
+	},
+	{
+	  "id": "engine_room",
+	  "name": "动力室",
+	  "map_position": { "x": 1, "y": 0 },
+	  "description": "飞船后部右舷的动力舱。空气里仍残留着燃料和机油的味道，几组储能模块发出断断续续的嗡鸣。墙边有一个没有标签的电闸，旁边的工具架上还能找到电钻和基础维修工具。",
+	  "visited": false,
+	  "tags": ["power", "hazard", "tools"],
+	  "clues": [
+		"飞船燃料还没有完全耗尽，但配电系统显然出了问题。",
         "那个没有标签的电闸，很可能控制着某条关键供电线路。"
-      ],
-      "items": [
-        "电钻",
-        "绝缘手套",
+	  ],
+	  "items": [
+		"电钻",
+		"绝缘手套",
         "燃料余量记录板"
-      ],
-      "puzzles": [
-        "判断无标签电闸控制的是哪一路电源",
+	  ],
+	  "puzzles": [
+		"判断无标签电闸控制的是哪一路电源",
         "恢复调压室与舱门的供电"
-      ],
-      "interactive_objects": [
-        "无标签电闸",
-        "燃料罐",
-        "工具架",
+	  ],
+	  "interactive_objects": [
+		"无标签电闸",
+		"燃料罐",
+		"工具架",
         "配电柜"
-      ],
-      "entry_requirements": []
-    },
-    {
-      "id": "supply_room",
-      "name": "物资室",
-      "map_position": { "x": -1, "y": 0 },
-      "description": "左舷后方的储备舱。货架上整齐码放着压缩饼干、饮用水和几盒电池，最下层却有几个翻倒的箱子，说明少女这几天已经来过这里多次翻找补给。",
-      "visited": false,
-      "tags": ["resource", "survival"],
-      "clues": [
-        "飞船上还剩下一段时间内足以维生的基础食物和饮水。",
+	  ],
+	  "entry_requirements": []
+	},
+	{
+	  "id": "supply_room",
+	  "name": "物资室",
+	  "map_position": { "x": -1, "y": 0 },
+	  "description": "左舷后方的储备舱。货架上整齐码放着压缩饼干、饮用水和几盒电池，最下层却有几个翻倒的箱子，说明少女这几天已经来过这里多次翻找补给。",
+	  "visited": false,
+	  "tags": ["resource", "survival"],
+	  "clues": [
+		"飞船上还剩下一段时间内足以维生的基础食物和饮水。",
         "这里存放的电池，也许能支持某种临时供电方案。"
-      ],
-      "items": [
-        "压缩饼干",
-        "饮用水包",
-        "高容量电池",
+	  ],
+	  "items": [
+		"压缩饼干",
+		"饮用水包",
+		"高容量电池",
         "急救包"
-      ],
-      "puzzles": [
-        "整理可用于维修与探索的关键物资",
+	  ],
+	  "puzzles": [
+		"整理可用于维修与探索的关键物资",
         "决定哪些补给需要优先分配"
-      ],
-      "interactive_objects": [
-        "补给货架",
-        "冷藏箱",
+	  ],
+	  "interactive_objects": [
+		"补给货架",
+		"冷藏箱",
         "电池收纳盒"
-      ],
-      "entry_requirements": []
-    },
-    {
-      "id": "airlock_hatch",
-      "name": "舱门",
-      "map_position": { "x": 2, "y": 1 },
-      "description": "通往外界的最终出口。厚重的外舱门表面覆着风沙与撞击留下的细小痕迹，外层机械锁依然牢牢卡在闭合位置。",
-      "visited": false,
-      "tags": ["exit", "sealed"],
-      "clues": [
-        "只要舱门恢复供电并完成调压，少女就能第一次真正离开飞船。",
+	  ],
+	  "entry_requirements": []
+	},
+	{
+	  "id": "airlock_hatch",
+	  "name": "舱门",
+	  "map_position": { "x": 2, "y": 1 },
+	  "description": "通往外界的最终出口。厚重的外舱门表面覆着风沙与撞击留下的细小痕迹，外层机械锁依然牢牢卡在闭合位置。",
+	  "visited": false,
+	  "tags": ["exit", "sealed"],
+	  "clues": [
+		"只要舱门恢复供电并完成调压，少女就能第一次真正离开飞船。",
         "舱门外的环境完全未知，贸然开启可能伴随额外风险。"
-      ],
-      "items": [],
-      "puzzles": [
-        "恢复舱门供电",
+	  ],
+	  "items": [],
+	  "puzzles": [
+		"恢复舱门供电",
         "完成开门前的安全确认"
-      ],
-      "interactive_objects": [
-        "外舱门控制锁",
-        "手动释放拉杆",
+	  ],
+	  "interactive_objects": [
+		"外舱门控制锁",
+		"手动释放拉杆",
         "舱门状态指示灯"
-      ],
-      "entry_requirements": []
-    }
+	  ],
+	  "entry_requirements": []
+	}
   ],
   "connections": [
-    {
-      "id": "lounge_to_bridge",
-      "from": "lounge",
-      "to": "bridge",
-      "direction": "NE",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "bridge_to_lounge",
-      "from": "bridge",
-      "to": "lounge",
-      "direction": "SW",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "bridge_to_pressure_room",
-      "from": "bridge",
-      "to": "pressure_room",
-      "direction": "SE",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "pressure_room_to_bridge",
-      "from": "pressure_room",
-      "to": "bridge",
-      "direction": "NW",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "pressure_room_to_engine_room",
-      "from": "pressure_room",
-      "to": "engine_room",
-      "direction": "S",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "engine_room_to_pressure_room",
-      "from": "engine_room",
-      "to": "pressure_room",
-      "direction": "N",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "engine_room_to_supply_room",
-      "from": "engine_room",
-      "to": "supply_room",
-      "direction": "W",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "supply_room_to_engine_room",
-      "from": "supply_room",
-      "to": "engine_room",
-      "direction": "E",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "supply_room_to_lounge",
-      "from": "supply_room",
-      "to": "lounge",
-      "direction": "N",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "lounge_to_supply_room",
-      "from": "lounge",
-      "to": "supply_room",
-      "direction": "S",
-      "travel_time": 1,
-      "requirements": []
-    },
-    {
-      "id": "pressure_room_to_airlock_hatch",
-      "from": "pressure_room",
-      "to": "airlock_hatch",
-      "direction": "E",
-      "travel_time": 1,
-      "requirements": ["airlock_power"]
-    },
-    {
-      "id": "airlock_hatch_to_pressure_room",
-      "from": "airlock_hatch",
-      "to": "pressure_room",
-      "direction": "W",
-      "travel_time": 1,
-      "requirements": ["airlock_power"]
-    }
+	{
+	  "id": "lounge_to_bridge",
+	  "from": "lounge",
+	  "to": "bridge",
+	  "direction": "NE",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "bridge_to_lounge",
+	  "from": "bridge",
+	  "to": "lounge",
+	  "direction": "SW",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "bridge_to_pressure_room",
+	  "from": "bridge",
+	  "to": "pressure_room",
+	  "direction": "SE",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "pressure_room_to_bridge",
+	  "from": "pressure_room",
+	  "to": "bridge",
+	  "direction": "NW",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "pressure_room_to_engine_room",
+	  "from": "pressure_room",
+	  "to": "engine_room",
+	  "direction": "S",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "engine_room_to_pressure_room",
+	  "from": "engine_room",
+	  "to": "pressure_room",
+	  "direction": "N",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "engine_room_to_supply_room",
+	  "from": "engine_room",
+	  "to": "supply_room",
+	  "direction": "W",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "supply_room_to_engine_room",
+	  "from": "supply_room",
+	  "to": "engine_room",
+	  "direction": "E",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "supply_room_to_lounge",
+	  "from": "supply_room",
+	  "to": "lounge",
+	  "direction": "N",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "lounge_to_supply_room",
+	  "from": "lounge",
+	  "to": "supply_room",
+	  "direction": "S",
+	  "travel_time": 1,
+	  "requirements": []
+	},
+	{
+	  "id": "pressure_room_to_airlock_hatch",
+	  "from": "pressure_room",
+	  "to": "airlock_hatch",
+	  "direction": "E",
+	  "travel_time": 1,
+	  "requirements": ["airlock_power"]
+	},
+	{
+	  "id": "airlock_hatch_to_pressure_room",
+	  "from": "airlock_hatch",
+	  "to": "pressure_room",
+	  "direction": "W",
+	  "travel_time": 1,
+	  "requirements": ["airlock_power"]
+	}
   ]
 }

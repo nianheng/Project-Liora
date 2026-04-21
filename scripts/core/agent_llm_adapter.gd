@@ -59,10 +59,14 @@ func build_system_prompt() -> String:
 		"You may use two command shapes only:",
 		"1. {\"type\": \"move_to_location\", \"target_location_id\": string, \"target_location_name\": string}",
 		"2. {\"type\": \"act\", \"target_id\": string, \"action\": string, \"params\": object}",
+		"3. {\"type\": \"set_auto_explore_interval\", \"seconds\": integer}",
 		"Do not invent locations, objects, actions, or hidden state.",
 		"Use exact ids and names from the known world locations list and exact object ids from the provided object lists.",
 		"For act commands, choose only actions that appear in the target object's actions list.",
 		"Use inspect to check an object, pick_up to take an item, use to directly use a carried item such as food, use_item to apply a carried item to a target object, set_value to change an allowed target value, and open to open a door or hatch.",
+		"Use set_auto_explore_interval only when you want to change how soon the next automatic exploration update should happen.",
+		"set_auto_explore_interval.seconds must be an integer between 10 and 60.",
+		"Use a larger value (40-60) if you want to wait longer for the player to respond. Use a smaller value(10-20) if you want to continue exploring by yourself sooner.",
 		"For set_value, params is required and must contain both key and value.",
 		"Valid example: {\"type\": \"act\", \"target_id\": \"some_object_id\", \"action\": \"set_value\", \"params\": {\"key\": \"some_state_key\", \"value\": 1}}",
 		"If you are unsure, return an empty commands array.",
@@ -91,6 +95,7 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 
 	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
 	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
+	var memory_lines: Array[String] = _format_memory_lines(context.memory_entries)
 
 	return "\n".join([
 		"Protocol: agent_output.v1",
@@ -98,12 +103,15 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		"Character profile: %s" % context.character_profile,
 		"Character status: %s" % JSON.stringify(context.character_status),
 		"Hunger prompt hint: %s" % context.hunger_prompt_hint,
+		"Current auto explore interval seconds: %d" % int(context.auto_explore_interval_seconds),
 		"Time: %s" % context.format_clock(),
 		"Location: %s" % context.current_location_name,
 		"Agent state: %s" % context.agent_state,
 		"Short-term goal: %s" % context.short_term_goal,
 		"Recent dialogue summary: %s" % context.recent_dialogue_summary,
 		"Desired locations: %s" % ", ".join(context.desired_location_ids),
+		"Memory:",
+		"\n".join(memory_lines),
 		"Current location objects:",
 		"\n".join(current_location_object_lines),
 		"Inventory objects:",
@@ -115,6 +123,7 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
 		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
 		"set_value reminder: always include params.key and params.value. Never omit key.",
+		"set_auto_explore_interval reminder: seconds must be an integer between 10 and 60.",
 		"Player message: %s" % message
 	])
 
@@ -145,6 +154,7 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 
 	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
 	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
+	var memory_lines: Array[String] = _format_memory_lines(context.memory_entries)
 
 	return "\n".join([
 		"Protocol: agent_output.v1",
@@ -154,12 +164,15 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"Character profile: %s" % context.character_profile,
 		"Character status: %s" % JSON.stringify(context.character_status),
 		"Hunger prompt hint: %s" % context.hunger_prompt_hint,
+		"Current auto explore interval seconds: %d" % int(context.auto_explore_interval_seconds),
 		"Time: %s" % context.format_clock(),
 		"Location: %s" % context.current_location_name,
 		"Agent state: %s" % context.agent_state,
 		"Short-term goal: %s" % context.short_term_goal,
 		"Recent dialogue summary: %s" % context.recent_dialogue_summary,
 		"Desired locations: %s" % ", ".join(context.desired_location_ids),
+		"Memory:",
+		"\n".join(memory_lines),
 		"Current location objects:",
 		"\n".join(current_location_object_lines),
 		"Inventory objects:",
@@ -171,6 +184,7 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
 		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
 		"set_value reminder: always include params.key and params.value. Never omit key.",
+		"set_auto_explore_interval reminder: seconds must be an integer between 10 and 60.",
 		"System event type: %s" % str(event.event_type),
 		"System event summary: %s" % str(event.summary_text),
 		"System event payload: %s" % JSON.stringify(event.payload)
@@ -193,6 +207,18 @@ func _format_visible_object_lines(objects: Array) -> Array[String]:
 			JSON.stringify(object_data.get("state", {}))
 		])
 	return lines
+
+
+func _format_memory_lines(entries: Array) -> Array[String]:
+	var lines: Array[String] = []
+	if entries.is_empty():
+		return ["- none"]
+	for entry_variant in entries:
+		var entry_text: String = str(entry_variant).strip_edges()
+		if entry_text.is_empty():
+			continue
+		lines.append("- " + entry_text.replace("\n", "\n  "))
+	return lines if not lines.is_empty() else ["- none"]
 
 
 func _build_request_payload_from_prompt(prompt_text: String) -> Dictionary:
@@ -462,6 +488,10 @@ func _append_commands_from_payload(output: AgentOutput, commands_variant: Varian
 				if target_id.is_empty():
 					continue
 				output.add_command(AgentCommandScript.move_to_location(target_id, target_name))
+			AgentCommandScript.TYPE_SET_AUTO_EXPLORE_INTERVAL:
+				if not command_dict.has("seconds"):
+					continue
+				output.add_command(AgentCommandScript.set_auto_explore_interval(int(command_dict.get("seconds", 0))))
 			AgentCommandScript.TYPE_ACT:
 				var target_object_id: String = str(command_dict.get("target_id", ""))
 				var action_name: String = str(command_dict.get("action", ""))

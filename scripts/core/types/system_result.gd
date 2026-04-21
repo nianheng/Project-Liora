@@ -11,6 +11,7 @@ const TYPE_ITEM_USED := "item_used"
 const TYPE_ITEM_APPLIED := "item_applied"
 const TYPE_VALUE_SET := "value_set"
 const TYPE_OBJECT_OPENED := "object_opened"
+const TYPE_AUTO_EXPLORE_INTERVAL_SET := "auto_explore_interval_set"
 const TYPE_ACTION_NOT_IMPLEMENTED := "action_not_implemented"
 
 var result_type: String = ""
