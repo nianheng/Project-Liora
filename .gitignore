@@ -9,6 +9,11 @@ export_presets.cfg
 *.local.gd
 secrets/
 
+# Local tooling / exports outside the game repo
+godot-mcp/
+test/
+test_*.zip
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
