@@ -91,6 +91,7 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 
 	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
 	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
+	var memory_lines: Array[String] = _format_memory_lines(context.memory_entries)
 
 	return "\n".join([
 		"Protocol: agent_output.v1",
@@ -104,6 +105,8 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		"Short-term goal: %s" % context.short_term_goal,
 		"Recent dialogue summary: %s" % context.recent_dialogue_summary,
 		"Desired locations: %s" % ", ".join(context.desired_location_ids),
+		"Memory:",
+		"\n".join(memory_lines),
 		"Current location objects:",
 		"\n".join(current_location_object_lines),
 		"Inventory objects:",
@@ -145,6 +148,7 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 
 	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
 	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
+	var memory_lines: Array[String] = _format_memory_lines(context.memory_entries)
 
 	return "\n".join([
 		"Protocol: agent_output.v1",
@@ -160,6 +164,8 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"Short-term goal: %s" % context.short_term_goal,
 		"Recent dialogue summary: %s" % context.recent_dialogue_summary,
 		"Desired locations: %s" % ", ".join(context.desired_location_ids),
+		"Memory:",
+		"\n".join(memory_lines),
 		"Current location objects:",
 		"\n".join(current_location_object_lines),
 		"Inventory objects:",
@@ -193,6 +199,18 @@ func _format_visible_object_lines(objects: Array) -> Array[String]:
 			JSON.stringify(object_data.get("state", {}))
 		])
 	return lines
+
+
+func _format_memory_lines(entries: Array) -> Array[String]:
+	var lines: Array[String] = []
+	if entries.is_empty():
+		return ["- none"]
+	for entry_variant in entries:
+		var entry_text: String = str(entry_variant).strip_edges()
+		if entry_text.is_empty():
+			continue
+		lines.append("- " + entry_text.replace("\n", "\n  "))
+	return lines if not lines.is_empty() else ["- none"]
 
 
 func _build_request_payload_from_prompt(prompt_text: String) -> Dictionary:
