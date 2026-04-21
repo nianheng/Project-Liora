@@ -1,4 +1,4 @@
-﻿extends Control
+extends Control
 
 const WorldGraph = preload("res://scripts/core/world_graph.gd")
 const WorldObjects = preload("res://scripts/core/world_objects.gd")
@@ -18,7 +18,10 @@ const TEXT := Color("ecf7ff")
 const TEXT_SOFT := Color("8ea7be")
 const ALERT := Color("ff8d74")
 const AUTO_EXPLORE_INTERVAL_SECONDS := 30
-const MAP_NODE_SIZE := Vector2(132, 42)
+const MAP_NODE_SIZE := Vector2(76, 34)
+const MAP_GRID_STEP := Vector2(64, 44)
+const MAP_CANVAS_MARGIN := Vector2(32, 26)
+const MAP_NODE_MIN_GAP := Vector2(18, 14)
 
 
 class MapGraphView:
@@ -44,6 +47,23 @@ class MapGraphView:
 				float(segment.get("width", 5.0)),
 				true
 			)
+
+	func get_hovered_connection(point: Vector2) -> Dictionary:
+		for segment in connection_segments:
+			var from_point: Vector2 = segment.get("from", Vector2.ZERO)
+			var to_point: Vector2 = segment.get("to", Vector2.ZERO)
+			if _distance_to_segment(point, from_point, to_point) <= 8.0:
+				return segment
+		return {}
+
+	func _distance_to_segment(point: Vector2, from_point: Vector2, to_point: Vector2) -> float:
+		var segment := to_point - from_point
+		var segment_length_squared := segment.length_squared()
+		if segment_length_squared <= 0.001:
+			return point.distance_to(from_point)
+		var t := clampf((point - from_point).dot(segment) / segment_length_squared, 0.0, 1.0)
+		var projection := from_point + segment * t
+		return point.distance_to(projection)
 
 var world_time_seconds: int = 22 * 3600 + 14 * 60
 var paused := false
@@ -81,11 +101,12 @@ var location_label: Label
 var objective_label: Label
 var system_log_toggle_button: Button
 var map_summary_label: Label
+var map_scroll: ScrollContainer
+var map_canvas: Control
 var map_graph_view
-var map_list = null
+var map_node_layer: Control
 var map_node_buttons: Dictionary = {}
-var route_list: ItemList
-var clue_list: ItemList
+var detail_object_list: ItemList
 var inventory_list: ItemList
 var comms_log: RichTextLabel
 var input_box: LineEdit
@@ -97,6 +118,14 @@ var detail_meta_label: Label
 var character_profile_label: Label
 var character_status_bars: Dictionary = {}
 var character_status_value_labels: Dictionary = {}
+var map_drag_pending := false
+var map_dragging := false
+var map_drag_origin := Vector2.ZERO
+var map_scroll_origin := Vector2i.ZERO
+var main_split_container: HSplitContainer
+var right_outer_split: VSplitContainer
+var bottom_row_split: HSplitContainer
+var map_lower_split: HSplitContainer
 
 
 func _ready() -> void:
@@ -105,11 +134,32 @@ func _ready() -> void:
 	current_agent = AgentFactory.create_agent()
 	selected_location_id = world_graph.current_location_id
 	build_ui()
+	resized.connect(_on_ui_resized)
 	setup_world_timer()
 	render_graph_data()
-	append_boot_log()
-	play_first_contact_intro()
+	comms_log.text = ""
+	call_deferred("play_first_contact_intro")
 	set_process_unhandled_input(true)
+	call_deferred("_apply_split_offsets")
+
+
+func _on_ui_resized() -> void:
+	call_deferred("_apply_split_offsets")
+
+
+func _apply_split_offsets() -> void:
+	if main_split_container != null:
+		main_split_container.split_offset = 0
+	if right_outer_split != null and right_outer_split.size.y > 0.0:
+		right_outer_split.split_offset = int(right_outer_split.size.y * (9.0 / 13.0) - right_outer_split.size.y * 0.5)
+	if bottom_row_split != null and bottom_row_split.size.x > 0.0:
+		bottom_row_split.split_offset = int(bottom_row_split.size.x * (50.0 / 77.0) - bottom_row_split.size.x * 0.5)
+	if map_lower_split != null and map_lower_split.size.x > 0.0:
+		map_lower_split.split_offset = int(map_lower_split.size.x * (50.0 / 77.0) - map_lower_split.size.x * 0.5)
+
+
+func _input(event: InputEvent) -> void:
+	handle_map_drag_input(event)
 
 
 func build_ui() -> void:
@@ -160,13 +210,12 @@ func build_ui() -> void:
 
 	root.add_child(build_header())
 
-	var main_split := HSplitContainer.new()
-	main_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	main_split.split_offset = 520
-	root.add_child(main_split)
+	main_split_container = HSplitContainer.new()
+	main_split_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(main_split_container)
 
-	main_split.add_child(build_left_column())
-	main_split.add_child(build_right_column())
+	main_split_container.add_child(build_left_column())
+	main_split_container.add_child(build_right_column())
 
 	pause_overlay = build_pause_overlay()
 	add_child(pause_overlay)
@@ -253,25 +302,17 @@ func build_left_column() -> Control:
 	var comms_column := VBoxContainer.new()
 	comms_margin.add_child(comms_column)
 
-	comms_column.add_child(make_section_title("通讯终端", "这里用于显示玩家输入、少女回复和系统注入的消息。"))
+	comms_column.add_child(make_section_title("通讯终端", ""))
 
 	comms_log = RichTextLabel.new()
 	comms_log.bbcode_enabled = true
 	comms_log.fit_content = false
+	comms_log.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	comms_log.scroll_following = true
 	comms_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	comms_log.custom_minimum_size = Vector2(0, 320)
+	comms_log.add_theme_font_size_override("normal_font_size", 23)
 	comms_column.add_child(comms_log)
-
-	var quick_row := HBoxContainer.new()
-	comms_column.add_child(quick_row)
-
-	for text in ["继续前进", "停下观察", "描述周围", "回传照片"]:
-		var button := Button.new()
-		button.text = text
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.pressed.connect(_on_quick_action.bind(text))
-		quick_row.add_child(button)
 
 	var input_label := Label.new()
 	input_label.text = "发送消息"
@@ -280,7 +321,8 @@ func build_left_column() -> Control:
 
 	input_box = LineEdit.new()
 	input_box.custom_minimum_size = Vector2(0, 42)
-	input_box.placeholder_text = "输入你要发给少女的话，例如：先别开舱门，拍一下门锁给我看看。"
+	input_box.placeholder_text = ""
+	input_box.add_theme_font_size_override("font_size", 23)
 	input_box.text_submitted.connect(_on_send_submitted)
 	comms_column.add_child(input_box)
 
@@ -303,15 +345,19 @@ func build_left_column() -> Control:
 
 
 func build_right_column() -> Control:
-	var outer := VSplitContainer.new()
-	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	outer.split_offset = 300
+	right_outer_split = VSplitContainer.new()
+	right_outer_split.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_outer_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-	outer.add_child(build_map_panel())
-	outer.add_child(build_right_lower_area())
+	right_outer_split.add_child(build_map_panel())
 
-	return outer
+	bottom_row_split = HSplitContainer.new()
+	bottom_row_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bottom_row_split.add_child(build_character_panel())
+	bottom_row_split.add_child(build_media_panel())
+	right_outer_split.add_child(bottom_row_split)
+
+	return right_outer_split
 
 
 func build_map_panel() -> Control:
@@ -330,73 +376,111 @@ func build_map_panel() -> Control:
 	var column := VBoxContainer.new()
 	margin.add_child(column)
 
-	column.add_child(make_section_title("地图与动线", "节点图显示全部地点；下方列表显示当前可见的有向路线、方向和耗时。"))
+	column.add_child(make_section_title("地图与地点", "上半部分显示地图；下半部分显示当前地点的详情和内容。"))
 
 	map_summary_label = Label.new()
 	map_summary_label.modulate = TEXT_SOFT
 	column.add_child(map_summary_label)
 
+	map_scroll = ScrollContainer.new()
+	map_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	map_scroll.custom_minimum_size = Vector2(0, 180)
+	map_scroll.clip_contents = true
+	map_scroll.follow_focus = false
+	map_scroll.get_h_scroll_bar().modulate = Color(1, 1, 1, 0)
+	map_scroll.get_v_scroll_bar().modulate = Color(1, 1, 1, 0)
+	map_scroll.get_h_scroll_bar().custom_minimum_size = Vector2(0, 0)
+	map_scroll.get_v_scroll_bar().custom_minimum_size = Vector2(0, 0)
+	column.add_child(map_scroll)
+
+	map_canvas = Control.new()
+	map_canvas.custom_minimum_size = Vector2(520, 240)
+	map_scroll.add_child(map_canvas)
+
 	map_graph_view = MapGraphView.new()
-	map_graph_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	map_graph_view.custom_minimum_size = Vector2(0, 180)
-	map_graph_view.clip_contents = false
-	map_graph_view.resized.connect(render_map_list)
-	column.add_child(map_graph_view)
+	map_graph_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_graph_view.mouse_filter = Control.MOUSE_FILTER_STOP
+	map_graph_view.anchor_right = 1.0
+	map_graph_view.anchor_bottom = 1.0
+	map_graph_view.offset_right = 0.0
+	map_graph_view.offset_bottom = 0.0
+	map_graph_view.gui_input.connect(_on_map_graph_gui_input)
+	map_graph_view.mouse_exited.connect(_clear_map_hover_summary)
+	map_canvas.add_child(map_graph_view)
 
-	var route_title := Label.new()
-	route_title.text = "当前可见路线"
-	route_title.modulate = TEXT_SOFT
-	column.add_child(route_title)
+	map_node_layer = Control.new()
+	map_node_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_node_layer.anchor_right = 1.0
+	map_node_layer.anchor_bottom = 1.0
+	map_node_layer.offset_right = 0.0
+	map_node_layer.offset_bottom = 0.0
+	map_canvas.add_child(map_node_layer)
 
-	route_list = ItemList.new()
-	route_list.custom_minimum_size = Vector2(0, 90)
-	route_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	route_list.item_selected.connect(_on_route_selected)
-	column.add_child(route_list)
+	map_lower_split = HSplitContainer.new()
+	map_lower_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(map_lower_split)
 
-	var travel_row := HBoxContainer.new()
-	column.add_child(travel_row)
+	var detail_panel := PanelContainer.new()
+	detail_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	map_lower_split.add_child(detail_panel)
 
-	var move_button := Button.new()
-	move_button.text = "移动到选中地点"
-	move_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	move_button.pressed.connect(_on_move_pressed)
-	travel_row.add_child(move_button)
+	var detail_margin := MarginContainer.new()
+	detail_margin.add_theme_constant_override("margin_left", 14)
+	detail_margin.add_theme_constant_override("margin_top", 14)
+	detail_margin.add_theme_constant_override("margin_right", 14)
+	detail_margin.add_theme_constant_override("margin_bottom", 14)
+	detail_panel.add_child(detail_margin)
 
-	var scan_button := Button.new()
-	scan_button.text = "刷新路线判定"
-	scan_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scan_button.pressed.connect(render_graph_data)
-	travel_row.add_child(scan_button)
+	var detail_column := VBoxContainer.new()
+	detail_margin.add_child(detail_column)
+
+	detail_title_label = Label.new()
+	detail_title_label.add_theme_font_size_override("font_size", 22)
+	detail_title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail_column.add_child(detail_title_label)
+
+	detail_meta_label = Label.new()
+	detail_meta_label.modulate = TEXT_SOFT
+	detail_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail_column.add_child(detail_meta_label)
+
+	detail_description_label = Label.new()
+	detail_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail_description_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_column.add_child(detail_description_label)
+
+	var content_panel := PanelContainer.new()
+	content_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	map_lower_split.add_child(content_panel)
+
+	var content_margin := MarginContainer.new()
+	content_margin.add_theme_constant_override("margin_left", 14)
+	content_margin.add_theme_constant_override("margin_top", 14)
+	content_margin.add_theme_constant_override("margin_right", 14)
+	content_margin.add_theme_constant_override("margin_bottom", 14)
+	content_panel.add_child(content_margin)
+
+	var content_column := VBoxContainer.new()
+	content_margin.add_child(content_column)
+
+	var content_header := Label.new()
+	content_header.text = "地点内容"
+	content_header.modulate = TEXT_SOFT
+	content_column.add_child(content_header)
+
+	detail_object_list = ItemList.new()
+	detail_object_list.custom_minimum_size = Vector2(0, 120)
+	detail_object_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_column.add_child(detail_object_list)
 
 	return panel
 
 
-func build_right_lower_area() -> Control:
-	var lower := VSplitContainer.new()
-	lower.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lower.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	lower.split_offset = 210
-
-	var middle_row := HSplitContainer.new()
-	middle_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	middle_row.split_offset = 300
-	middle_row.add_child(build_character_panel())
-	middle_row.add_child(build_location_detail_panel())
-	lower.add_child(middle_row)
-
-	var bottom_row := HSplitContainer.new()
-	bottom_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	bottom_row.split_offset = 300
-	bottom_row.add_child(build_clue_panel())
-	bottom_row.add_child(build_media_panel())
-	lower.add_child(bottom_row)
-
-	return lower
-
-
 func build_character_panel() -> Control:
 	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	panel.custom_minimum_size = Vector2(280, 190)
 
@@ -410,7 +494,7 @@ func build_character_panel() -> Control:
 	var column := VBoxContainer.new()
 	margin.add_child(column)
 
-	column.add_child(make_section_title("人物状态", "这里显示少女的设定摘要，以及好感、饱食、思想倾向和情绪状态。"))
+	column.add_child(make_section_title("任务状态", "这里显示当前目标，以及少女当前最关键的状态。"))
 
 	character_profile_label = Label.new()
 	character_profile_label.modulate = TEXT_SOFT
@@ -428,81 +512,12 @@ func build_character_panel() -> Control:
 	character_status_bars["satiety"] = satiety_meter.get("bar")
 	character_status_value_labels["satiety"] = satiety_meter.get("value_label")
 
-	var ideology_meter: Dictionary = make_status_meter("思想倾向", ACCENT)
-	column.add_child(ideology_meter.get("root"))
-	character_status_bars["ideology"] = ideology_meter.get("bar")
-	character_status_value_labels["ideology"] = ideology_meter.get("value_label")
-
-	var mood_meter: Dictionary = make_status_meter("情绪", ALERT)
-	column.add_child(mood_meter.get("root"))
-	character_status_bars["mood"] = mood_meter.get("bar")
-	character_status_value_labels["mood"] = mood_meter.get("value_label")
-
-	return panel
-
-
-func build_location_detail_panel() -> Control:
-	var panel := PanelContainer.new()
-	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	panel.custom_minimum_size = Vector2(280, 150)
-
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 18)
-	margin.add_theme_constant_override("margin_top", 18)
-	margin.add_theme_constant_override("margin_right", 18)
-	margin.add_theme_constant_override("margin_bottom", 18)
-	panel.add_child(margin)
-
-	var column := VBoxContainer.new()
-	margin.add_child(column)
-
-	column.add_child(make_section_title("当前地点详情", "这里由地图数据驱动，显示描述、探索状态、进入条件和交互对象。"))
-
-	detail_title_label = Label.new()
-	detail_title_label.add_theme_font_size_override("font_size", 22)
-	detail_title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(detail_title_label)
-
-	detail_meta_label = Label.new()
-	detail_meta_label.modulate = TEXT_SOFT
-	detail_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(detail_meta_label)
-
-	detail_description_label = Label.new()
-	detail_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	detail_description_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	column.add_child(detail_description_label)
-
-	return panel
-
-
-func build_clue_panel() -> Control:
-	var panel := PanelContainer.new()
-	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	panel.custom_minimum_size = Vector2(280, 180)
-
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 18)
-	margin.add_theme_constant_override("margin_top", 18)
-	margin.add_theme_constant_override("margin_right", 18)
-	margin.add_theme_constant_override("margin_bottom", 18)
-	panel.add_child(margin)
-
-	var column := VBoxContainer.new()
-	margin.add_child(column)
-
-	column.add_child(make_section_title("当前地点内容", "这里显示当前地点中的可拾取物品和可交互对象，仅用于观察，不直接替少女执行动作。"))
-
-	clue_list = ItemList.new()
-	clue_list.custom_minimum_size = Vector2(0, 140)
-	clue_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	column.add_child(clue_list)
-
 	return panel
 
 
 func build_media_panel() -> Control:
 	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	panel.custom_minimum_size = Vector2(280, 180)
 
@@ -580,7 +595,6 @@ func build_pause_overlay() -> ColorRect:
 func render_graph_data() -> void:
 	render_header()
 	render_map_list()
-	render_route_list()
 	render_character_status()
 	render_location_detail()
 	render_clues()
@@ -597,21 +611,18 @@ func render_header() -> void:
 		location_label.text = "当前位置: %s -> %s" % [from_name, to_name]
 	else:
 		location_label.text = "当前位置: %s" % current_location.get("name", "--")
-	map_summary_label.text = "地点 %d 个 | 已探索 %d 个 | 已解锁条件: %s" % [
-		world_graph.get_location_ids().size(),
-		world_graph.count_visited_locations(),
-		", ".join(unlocked_requirements)
-	]
+	map_summary_label.text = "将鼠标移动到地点或道路上可查看探索与通行信息。"
 
 
 func render_character_status() -> void:
 	if character_profile_label != null:
-		character_profile_label.text = "%s\n%s" % [girl_name, girl_profile]
+		character_profile_label.text = "主目标：%s\n当前目标：%s" % [
+			objective_label.text.replace("目标：", ""),
+			system_agent_short_term_goal
+		]
 
 	_update_status_meter("favorability", girl_favorability, "保留")
 	_update_status_meter("satiety", girl_satiety, "稳定")
-	_update_status_meter("ideology", girl_ideology, "保守 ← → 自由")
-	_update_status_meter("mood", girl_mood, "消极 ← → 积极")
 
 
 func _update_status_meter(status_id: String, value: int, suffix: String) -> void:
@@ -650,11 +661,9 @@ func render_map_list() -> void:
 		var button: Button = map_node_buttons.get(location_id, null)
 		if button == null:
 			continue
-		var location: Dictionary = world_graph.get_location(location_id)
 		button.position = positions.get(location_id, Vector2.ZERO)
 		button.size = MAP_NODE_SIZE
-		var visited_text_graph: String = "已探索" if bool(location.get("visited", false)) else "未知"
-		button.text = "%s\n%s" % [str(location.get("name", "")), visited_text_graph]
+		button.text = str(world_graph.get_location(location_id).get("name", ""))
 		_style_map_node_button(button, location_id)
 
 	for from_id in ids:
@@ -666,7 +675,10 @@ func render_map_list() -> void:
 				"from": centers[from_id],
 				"to": centers[to_id],
 				"color": Color("35536f"),
-				"width": 3.0
+				"width": 3.0,
+				"travel_time": int(neighbor.get("travel_time", 0)),
+				"from_name": str(neighbor.get("from_name", world_graph.get_location(from_id).get("name", from_id))),
+				"to_name": str(neighbor.get("to_name", to_id))
 			})
 
 	if is_traveling():
@@ -705,11 +717,15 @@ func _ensure_map_node_buttons() -> void:
 		if map_node_buttons.has(location_id):
 			continue
 		var button := Button.new()
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.autowrap_mode = TextServer.AUTOWRAP_OFF
 		button.clip_text = true
 		button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		button.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+		button.add_theme_font_size_override("font_size", 14)
 		button.pressed.connect(_on_map_node_pressed.bind(location_id))
-		map_graph_view.add_child(button)
+		button.mouse_entered.connect(_on_map_node_hovered.bind(location_id))
+		button.mouse_exited.connect(_clear_map_hover_summary)
+		map_node_layer.add_child(button)
 		map_node_buttons[location_id] = button
 
 	for existing_id in map_node_buttons.keys():
@@ -739,31 +755,24 @@ func _build_map_node_layout(ids: Array[String]) -> Dictionary:
 		min_y = mini(min_y, y)
 		max_y = maxi(max_y, y)
 
-	var graph_size: Vector2 = map_graph_view.size
-	if graph_size.x <= 0.0 or graph_size.y <= 0.0:
-		graph_size = map_graph_view.custom_minimum_size
-	if graph_size.x <= 0.0:
-		graph_size.x = 480.0
-	if graph_size.y <= 0.0:
-		graph_size.y = 180.0
-
-	var horizontal_steps: float = maxi(max_x - min_x, 1.0)
-	var vertical_steps: float = maxi(max_y - min_y, 1.0)
-	var available_width: float = maxi(graph_size.x - MAP_NODE_SIZE.x - 24.0, 1.0)
-	var available_height: float = maxi(graph_size.y - MAP_NODE_SIZE.y - 24.0, 1.0)
-	var step_x: float = available_width / horizontal_steps
-	var step_y: float = available_height / vertical_steps
 	var positions: Dictionary = {}
 	var centers: Dictionary = {}
+	var content_width: float = (max_x - min_x) * MAP_GRID_STEP.x + MAP_NODE_SIZE.x + MAP_CANVAS_MARGIN.x * 2.0
+	var content_height: float = (max_y - min_y) * MAP_GRID_STEP.y + MAP_NODE_SIZE.y + MAP_CANVAS_MARGIN.y * 2.0
+	if map_canvas != null:
+		map_canvas.custom_minimum_size = Vector2(
+			maxf(content_width, 520.0),
+			maxf(content_height, 240.0)
+		)
 
 	for location_id in ids:
 		var raw_position: Vector2 = raw_positions[location_id]
 		var final_position := Vector2(
-			12.0 + (raw_position.x - min_x) * step_x,
-			12.0 + (max_y - raw_position.y) * step_y
+			MAP_CANVAS_MARGIN.x + (raw_position.x - min_x) * MAP_GRID_STEP.x,
+			MAP_CANVAS_MARGIN.y + (max_y - raw_position.y) * MAP_GRID_STEP.y
 		)
 		positions[location_id] = final_position
-		centers[location_id] = final_position + MAP_NODE_SIZE * 0.5
+	centers = _resolve_map_node_overlap(ids, positions)
 
 	return {
 		"positions": positions,
@@ -771,18 +780,105 @@ func _build_map_node_layout(ids: Array[String]) -> Dictionary:
 	}
 
 
+func _resolve_map_node_overlap(ids: Array[String], positions: Dictionary) -> Dictionary:
+	var adjusted_positions: Dictionary = {}
+	var min_dx: float = MAP_NODE_SIZE.x + MAP_NODE_MIN_GAP.x
+	var min_dy: float = MAP_NODE_SIZE.y + MAP_NODE_MIN_GAP.y
+
+	for location_id in ids:
+		adjusted_positions[location_id] = positions[location_id]
+
+	for _pass in range(6):
+		var moved := false
+		for index_a in range(ids.size()):
+			for index_b in range(index_a + 1, ids.size()):
+				var id_a: String = ids[index_a]
+				var id_b: String = ids[index_b]
+				var pos_a: Vector2 = adjusted_positions[id_a]
+				var pos_b: Vector2 = adjusted_positions[id_b]
+				var delta: Vector2 = pos_b - pos_a
+				var overlap_x: float = min_dx - absf(delta.x)
+				var overlap_y: float = min_dy - absf(delta.y)
+				if overlap_x <= 0.0 or overlap_y <= 0.0:
+					continue
+
+				if absf(delta.x) >= absf(delta.y):
+					var push_x: float = overlap_x * 0.5
+					if delta.x >= 0.0:
+						pos_a.x -= push_x
+						pos_b.x += push_x
+					else:
+						pos_a.x += push_x
+						pos_b.x -= push_x
+				else:
+					var push_y: float = overlap_y * 0.5
+					if delta.y >= 0.0:
+						pos_a.y -= push_y
+						pos_b.y += push_y
+					else:
+						pos_a.y += push_y
+						pos_b.y -= push_y
+
+				adjusted_positions[id_a] = pos_a
+				adjusted_positions[id_b] = pos_b
+				moved = true
+		if not moved:
+			break
+
+	var min_pos := Vector2(999999.0, 999999.0)
+	var max_pos := Vector2(-999999.0, -999999.0)
+	for location_id in ids:
+		var adjusted: Vector2 = adjusted_positions[location_id]
+		min_pos.x = minf(min_pos.x, adjusted.x)
+		min_pos.y = minf(min_pos.y, adjusted.y)
+		max_pos.x = maxf(max_pos.x, adjusted.x)
+		max_pos.y = maxf(max_pos.y, adjusted.y)
+
+	var shift := Vector2.ZERO
+	if min_pos.x < MAP_CANVAS_MARGIN.x:
+		shift.x = MAP_CANVAS_MARGIN.x - min_pos.x
+	if min_pos.y < MAP_CANVAS_MARGIN.y:
+		shift.y = MAP_CANVAS_MARGIN.y - min_pos.y
+	min_pos += shift
+	max_pos += shift
+
+	var content_size := Vector2(
+		max_pos.x - min_pos.x + MAP_NODE_SIZE.x + MAP_CANVAS_MARGIN.x,
+		max_pos.y - min_pos.y + MAP_NODE_SIZE.y + MAP_CANVAS_MARGIN.y
+	)
+	var viewport_size := Vector2(520.0, 240.0)
+	if map_scroll != null and map_scroll.size.x > 0.0 and map_scroll.size.y > 0.0:
+		viewport_size = map_scroll.size
+
+	var canvas_size := Vector2(
+		maxf(content_size.x, viewport_size.x),
+		maxf(content_size.y, viewport_size.y)
+	)
+	if map_canvas != null:
+		map_canvas.custom_minimum_size = canvas_size
+
+	var center_shift := Vector2.ZERO
+	if content_size.x < canvas_size.x:
+		center_shift.x = (canvas_size.x - content_size.x) * 0.5
+	if content_size.y < canvas_size.y:
+		center_shift.y = (canvas_size.y - content_size.y) * 0.5
+
+	var centers: Dictionary = {}
+	for location_id in ids:
+		var final_position: Vector2 = adjusted_positions[location_id] + shift + center_shift
+		positions[location_id] = final_position
+		centers[location_id] = final_position + MAP_NODE_SIZE * 0.5
+
+	return centers
+
+
 func _style_map_node_button(button: Button, location_id: String) -> void:
 	var fill: Color = PANEL_ALT
 	var border: Color = Color("35536f")
 	if location_id == world_graph.current_location_id:
-		fill = ACCENT
 		border = ACCENT
 	elif location_id == selected_location_id:
-		fill = Color("214e73")
 		border = ACCENT_WARM
-	elif bool(world_graph.get_location(location_id).get("visited", false)):
-		fill = Color("17324a")
-		border = Color("4e6d87")
 
 	if location_id == "airlock_hatch":
 		var airlock_door: Dictionary = world_objects.get_object("obj_airlock_door_01")
@@ -795,10 +891,40 @@ func _style_map_node_button(button: Button, location_id: String) -> void:
 			elif not airlock_powered:
 				border = Color("e27d7d")
 
-	button.add_theme_color_override("font_color", BG if location_id == world_graph.current_location_id else TEXT)
+	button.add_theme_color_override("font_color", TEXT)
 	button.add_theme_stylebox_override("normal", make_panel_style(fill, 14, border))
 	button.add_theme_stylebox_override("hover", make_panel_style(fill.lightened(0.08), 14, ACCENT_WARM))
 	button.add_theme_stylebox_override("pressed", make_panel_style(fill.darkened(0.08), 14, ACCENT_WARM))
+
+
+func handle_map_drag_input(event: InputEvent) -> void:
+	if map_scroll == null:
+		return
+	var map_rect := map_scroll.get_global_rect()
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			if map_rect.has_point(event.global_position):
+				map_drag_pending = true
+				map_dragging = false
+				map_drag_origin = event.global_position
+				map_scroll_origin = Vector2i(map_scroll.scroll_horizontal, map_scroll.scroll_vertical)
+		else:
+			if map_dragging:
+				get_viewport().set_input_as_handled()
+			map_drag_pending = false
+			map_dragging = false
+	elif event is InputEventMouseMotion and (map_drag_pending or map_dragging):
+		if not map_dragging:
+			if not map_rect.has_point(map_drag_origin):
+				map_drag_pending = false
+				return
+			if event.global_position.distance_to(map_drag_origin) < 8.0:
+				return
+			map_dragging = true
+		var delta: Vector2 = event.global_position - map_drag_origin
+		map_scroll.scroll_horizontal = map_scroll_origin.x - int(delta.x)
+		map_scroll.scroll_vertical = map_scroll_origin.y - int(delta.y)
+		get_viewport().set_input_as_handled()
 
 
 func _on_map_node_pressed(location_id: String) -> void:
@@ -807,31 +933,39 @@ func _on_map_node_pressed(location_id: String) -> void:
 	render_location_detail()
 	render_clues()
 
-
-func render_route_list() -> void:
-	route_list.clear()
-	if is_traveling():
-		var route_text: String = "%s %s -> %s | 全程 %d 分钟 | 剩余 %s" % [
-			active_travel_connection.get("direction_label", ""),
-			world_graph.get_location(travel_origin_id).get("name", "--"),
-			world_graph.get_location(travel_destination_id).get("name", "--"),
-			int(active_travel_connection.get("travel_time", 0)),
-			format_duration(travel_remaining_seconds)
-		]
-		route_list.add_item(route_text)
+func _on_map_node_hovered(location_id: String) -> void:
+	var location: Dictionary = world_graph.get_location(location_id)
+	var can_travel_result: Dictionary = world_graph.can_travel(world_graph.current_location_id, location_id, unlocked_requirements)
+	if location_id == world_graph.current_location_id:
+		map_summary_label.text = "%s | 当前所在地点" % str(location.get("name", location_id))
 		return
-	for neighbor in world_graph.get_neighbors(world_graph.current_location_id):
-		var travel_result: Dictionary = world_graph.can_travel(world_graph.current_location_id, str(neighbor.get("to_id", "")), unlocked_requirements)
-		var status: String = "可通行" if bool(travel_result.get("allowed", false)) else "缺少条件: %s" % ", ".join(travel_result.get("reasons", []))
-		var visited_tag: String = "已探索" if bool(neighbor.get("destination_visited", false)) else "未探索"
-		var text: String = "%s %s | %s 分钟 | %s | %s" % [
-			neighbor.get("direction_label", ""),
-			neighbor.get("to_name", ""),
-			neighbor.get("travel_time", 0),
-			visited_tag,
-			status
+	var can_explore_text := "可以探索"
+	var can_travel_text := "可以通行"
+	if not bool(can_travel_result.get("allowed", false)):
+		can_travel_text = "不可以通行"
+	map_summary_label.text = "%s | %s | %s" % [
+		str(location.get("name", location_id)),
+		can_explore_text,
+		can_travel_text
+	]
+
+
+func _on_map_graph_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		var hovered_segment: Dictionary = map_graph_view.get_hovered_connection(event.position)
+		if hovered_segment.is_empty():
+			_clear_map_hover_summary()
+			return
+		map_summary_label.text = "道路 %s -> %s | 移动时间: %d 分钟" % [
+			str(hovered_segment.get("from_name", "--")),
+			str(hovered_segment.get("to_name", "--")),
+			int(hovered_segment.get("travel_time", 0))
 		]
-		route_list.add_item(text)
+
+
+func _clear_map_hover_summary() -> void:
+	if map_summary_label != null:
+		map_summary_label.text = "将鼠标移动到地点或道路上可查看探索与通行信息。"
 
 
 func render_location_detail() -> void:
@@ -853,31 +987,27 @@ func render_location_detail() -> void:
 		return
 
 	detail_title_label.text = str(location.get("name", "未知地点"))
-	var requirements: Array = location.get("entry_requirements", [])
-	var requirement_text: String = "无" if requirements.is_empty() else ", ".join(requirements)
-	detail_meta_label.text = "ID: %s | 探索状态: %s | 进入条件: %s" % [
-		location.get("id", ""),
-		"已探索" if bool(location.get("visited", false)) else "未探索",
-		requirement_text
-	]
+	detail_meta_label.text = "当前地点内容: %d 项" % world_objects.get_location_objects(selected_location_id).size()
 	detail_description_label.text = str(location.get("description", ""))
 
 
 func render_clues() -> void:
-	clue_list.clear()
+	if detail_object_list == null:
+		return
+	detail_object_list.clear()
 	if is_traveling():
-		clue_list.add_item("道路 | 起点 | %s" % world_graph.get_location(travel_origin_id).get("name", "--"))
-		clue_list.add_item("道路 | 终点 | %s" % world_graph.get_location(travel_destination_id).get("name", "--"))
-		clue_list.add_item("道路 | 方向 | %s" % active_travel_connection.get("direction_label", ""))
-		clue_list.add_item("道路 | 剩余时间 | %s" % format_duration(travel_remaining_seconds))
+		detail_object_list.add_item("道路 | 起点 | %s" % world_graph.get_location(travel_origin_id).get("name", "--"))
+		detail_object_list.add_item("道路 | 终点 | %s" % world_graph.get_location(travel_destination_id).get("name", "--"))
+		detail_object_list.add_item("道路 | 方向 | %s" % active_travel_connection.get("direction_label", ""))
+		detail_object_list.add_item("道路 | 剩余时间 | %s" % format_duration(travel_remaining_seconds))
 		var travel_requirements: Array = active_travel_connection.get("requirements", [])
 		var travel_requirement_text: String = "无" if travel_requirements.is_empty() else ", ".join(travel_requirements)
-		clue_list.add_item("道路 | 通行条件 | %s" % travel_requirement_text)
+		detail_object_list.add_item("道路 | 通行条件 | %s" % travel_requirement_text)
 		return
 	for object_data in world_objects.get_location_objects(selected_location_id):
-		clue_list.add_item(format_object_list_entry(object_data))
-	if clue_list.item_count == 0:
-		clue_list.add_item("当前地点没有可见对象。")
+		detail_object_list.add_item(format_object_list_entry(object_data))
+	if detail_object_list.item_count == 0:
+		detail_object_list.add_item("当前地点没有可见对象。")
 
 
 func render_inventory() -> void:
@@ -945,7 +1075,6 @@ func append_boot_log() -> void:
 		append_log("[系统] 已启用真实 Agent 适配层，当前项目可以在测试代理和 LLM 代理之间切换。")
 	else:
 		append_log("[系统] 已启用测试代理，在消息里提到地点名时会自动生成移动指令。")
-	append_log("[少女] 我先把附近能走的路线整理好了，你可以看看右边的路线面板。")
 
 
 func play_first_contact_intro() -> void:
@@ -955,10 +1084,13 @@ func play_first_contact_intro() -> void:
 	objective_label.text = "目标：完成首次通讯，帮助少女确认飞船内部现状。"
 	system_agent_short_term_goal = "完成首次通讯，帮助少女确认飞船内部的关键状况。"
 	system_recent_dialogue_summary = "少女刚通过无线电与玩家建立联系，正在说明自己迫降后的处境。"
-	append_log("[系统] 序章事件触发：首次接通无线电。")
+	await get_tree().create_timer(1.0).timeout
 	append_log("[少女] 喂？能听见吗？太好了，终于有人回应我了。")
+	await get_tree().create_timer(1.6).timeout
 	append_log("[少女] 我刚从休眠舱里醒来，发现乘坐的飞船迫降在一颗陌生的星球上。")
+	await get_tree().create_timer(2.0).timeout
 	append_log("[少女] 从我醒来到现在已经过去三天了。这三天我一直在摸索飞船里还能不能用的东西，刚才摆弄无线电时正好联系上了你。")
+	await get_tree().create_timer(1.8).timeout
 	append_log("[少女] 我现在在休息室。飞船内部勉强还能活动，但很多系统都不太稳定。你愿意先陪我确认一下这艘船现在到底是什么情况吗？")
 	render_graph_data()
 
@@ -1777,16 +1909,6 @@ func _on_map_location_selected(index: int) -> void:
 	if index < 0 or index >= ids.size():
 		return
 	selected_location_id = ids[index]
-	render_location_detail()
-	render_clues()
-
-
-func _on_route_selected(index: int) -> void:
-	var neighbors: Array[Dictionary] = world_graph.get_neighbors(world_graph.current_location_id)
-	if index < 0 or index >= neighbors.size():
-		return
-	selected_location_id = str(neighbors[index].get("to_id", ""))
-	render_map_list()
 	render_location_detail()
 	render_clues()
 
