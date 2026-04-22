@@ -1418,7 +1418,9 @@ func _run_player_agent_request_async(message: String) -> void:
 		agent_output = current_agent.process_player_message(message, context, world_graph)
 	if not is_request_serial_current(request_serial):
 		return
-	await apply_agent_output(agent_output, "[少女]", request_serial, source_memory_entry)
+	append_girl_memory_input(source_memory_entry)
+	clear_active_request_snapshot()
+	await apply_agent_output(agent_output, "[少女]", request_serial)
 	if not is_request_serial_current(request_serial):
 		return
 	if not first_player_u2a_completed:
@@ -1453,7 +1455,9 @@ func _run_system_event_agent_request_async(event) -> void:
 		agent_output = current_agent.process_system_event(event, context, world_graph)
 	if not is_request_serial_current(request_serial):
 		return
-	await apply_agent_output(agent_output, "[少女]", request_serial, source_memory_entry)
+	append_girl_memory_input(source_memory_entry)
+	clear_active_request_snapshot()
+	await apply_agent_output(agent_output, "[少女]", request_serial)
 	if not is_request_serial_current(request_serial):
 		return
 	agent_request_in_flight = false
@@ -1520,28 +1524,23 @@ func split_reply_text_into_lines(reply_text: String) -> Array[String]:
 	return lines
 
 
-func display_girl_reply_lines(reply_text: String, trigger_label: String, request_serial: int = -1, source_memory_entry: String = "") -> bool:
+func display_girl_reply_lines(reply_text: String, trigger_label: String, request_serial: int = -1) -> void:
 	var normalized_trigger_label := trigger_label
-	if trigger_label == "[??]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
+	if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
 		normalized_trigger_label = get_girl_speaker_prefix()
 	var lines := split_reply_text_into_lines(reply_text)
 	if lines.is_empty():
-		return false
-	var source_memory_committed := false
+		return
 	for index in range(lines.size()):
 		var line: String = lines[index]
 		if request_serial != -1 and not is_request_serial_current(request_serial):
-			return source_memory_committed
+			return
 		await get_tree().create_timer(get_scripted_line_delay_seconds(line)).timeout
 		if request_serial != -1 and not is_request_serial_current(request_serial):
-			return source_memory_committed
-		if not source_memory_committed and not source_memory_entry.strip_edges().is_empty():
-			append_girl_memory_input(source_memory_entry)
-			source_memory_committed = true
+			return
 		append_log("%s %s" % [normalized_trigger_label, line])
 		append_girl_memory_reply_line(line)
 		update_girl_display_identity_from_text(line)
-	return source_memory_committed
 
 func apply_player_name_if_detected(candidate_name: String) -> void:
 	var normalized_name := candidate_name.strip_edges()
@@ -1608,19 +1607,15 @@ func _serialize_agent_commands(commands: Array) -> Array[Dictionary]:
 	return serialized
 
 
-func apply_agent_output(agent_output, trigger_label: String, request_serial: int = -1, source_memory_entry: String = "") -> void:
+func apply_agent_output(agent_output, trigger_label: String, request_serial: int = -1) -> void:
 	if agent_output == null:
 		return
 	applying_agent_output = true
-	var source_memory_committed := false
 	if not str(agent_output.reply_text).is_empty():
-		source_memory_committed = await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial, source_memory_entry)
+		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial)
 	if request_serial != -1 and not is_request_serial_current(request_serial):
 		applying_agent_output = false
 		return
-	if not source_memory_committed and not source_memory_entry.strip_edges().is_empty():
-		append_girl_memory_input(source_memory_entry)
-		source_memory_committed = true
 	if request_serial == -1 or is_request_serial_current(request_serial):
 		execute_command_set(agent_output.commands)
 		append_girl_memory_reply_commands(agent_output.commands)
@@ -1631,23 +1626,19 @@ func apply_agent_output(agent_output, trigger_label: String, request_serial: int
 	applying_agent_output = false
 
 
-func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, reply_delay_seconds: float, request_serial: int = -1, source_memory_entry: String = "") -> void:
+func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, reply_delay_seconds: float, request_serial: int = -1) -> void:
 	if agent_output == null:
 		return
 	applying_agent_output = true
-	var source_memory_committed := false
 	if not str(agent_output.reply_text).is_empty():
 		await get_tree().create_timer(reply_delay_seconds).timeout
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			applying_agent_output = false
 			return
-		source_memory_committed = await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial, source_memory_entry)
+		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial)
 	if request_serial != -1 and not is_request_serial_current(request_serial):
 		applying_agent_output = false
 		return
-	if not source_memory_committed and not source_memory_entry.strip_edges().is_empty():
-		append_girl_memory_input(source_memory_entry)
-		source_memory_committed = true
 	if request_serial == -1 or is_request_serial_current(request_serial):
 		execute_command_set(agent_output.commands)
 		append_girl_memory_reply_commands(agent_output.commands)

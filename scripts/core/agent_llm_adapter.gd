@@ -166,7 +166,7 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		lines.insert(lines.size() - 1, "system events:")
 		lines.insert(lines.size() - 1, "\n".join(interrupted_event_lines))
 	if bool(context.should_ask_player_name_hint):
-		lines.insert(lines.size() - 1, "Extra intent hint: 你很想问问通讯器另一头的那个人的名字，以及他是来自哪里的。请自然地把这份好奇融入回复里，不要显得生硬。")
+		lines.insert(lines.size() - 1, "Extra intent hint: 你很想问问通讯器另一头的那个人的名字(如果他还没告诉你的话)，以及他是来自哪里的。请自然地把这份好奇融入回复里，不要显得生硬。")
 	if not String(context.hunger_prompt_hint).strip_edges().is_empty():
 		lines.insert(4, "Hunger prompt hint: %s" % context.hunger_prompt_hint)
 	return "\n".join(lines)
