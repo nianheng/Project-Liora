@@ -3,6 +3,7 @@ class_name AgentLLMAdapter
 
 const AgentCommandScript = preload("res://scripts/core/types/agent_command.gd")
 const RuntimeConfig = preload("res://scripts/core/agent_runtime_config.gd")
+const PERSONA_PROMPT_PATH := "res://data/character/liora_persona_prompt.txt"
 
 
 func get_adapter_name() -> String:
@@ -49,10 +50,30 @@ func process_system_event_async(host: Node, event, context, world_graph: WorldGr
 	return _parse_response_to_output(response.get("body", {}), event.summary_text, world_graph)
 
 
+func extract_player_name_async(host: Node, message: String) -> String:
+	var payload: Dictionary = _build_name_extraction_payload(message)
+	var response: Dictionary = await _perform_request_async(host, payload)
+	if not bool(response.get("ok", false)):
+		push_warning("Player name extraction failed: %s" % JSON.stringify(response))
+		return ""
+	return _parse_name_extraction_response(response.get("body", {}))
+
+
 func build_system_prompt() -> String:
-	return "\n".join([
+	var instruction_block := "\n".join([
 		"You are the stranded girl agent in a sci-fi mystery exploration game.",
 		"Reply naturally and in character.",
+		"You are chatting through a handheld communication terminal, not writing a monologue or report.",
+		"Your reply_text must feel like manually typed live chat messages.",
+		"Keep reply_text to 1 to 4 sentences total.",
+		"Each sentence must be on its own line, separated by newline characters.",
+		"Each sentence should usually stay within 100 Chinese characters.",
+		"For short acknowledgements, reactions, jokes, or quick answers, prefer 1 to 2 sentences.",
+		"For normal explanations or observations, prefer 2 to 3 sentences.",
+		"Only when you are clearly excited or need to explain something important, use 3 to 4 sentences.",
+		"Do not dump every detail in one reply. Say the most important part first and leave room for later turns.",
+		"Prefer short and medium-length sentences over long paragraphs.",
+		"Do not use bullet points or numbering inside reply_text.",
 		"Never claim world state changes unless the system already provided them.",
 		"Only emit commands from the allowed command schema.",
 		"If you decide to go somewhere, commands must be an array of objects, not strings.",
@@ -73,7 +94,20 @@ func build_system_prompt() -> String:
 		"The system owns all persistent state.",
 		"Return valid JSON only.",
 		"Schema:",
-		"{\"reply_text\": string, \"commands\": [{\"type\": string, ...}]}"
+		"{\"reply_text\": string, \"commands\": [{\"type\": string, ...}]}",
+		"reply_text format reminder:",
+		"- 1 to 4 sentences total",
+		"- each sentence on its own line",
+		"- no bullets, no numbering, no long paragraph blocks"
+	])
+	var persona_prompt: String = _load_persona_prompt()
+	if persona_prompt.is_empty():
+		return instruction_block
+	return "\n\n".join([
+		"角色卡：",
+		persona_prompt,
+		"系统行为约束：",
+		instruction_block
 	])
 
 
@@ -96,13 +130,12 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
 	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
 	var memory_lines: Array[String] = _format_memory_lines(context.memory_entries)
-
-	return "\n".join([
+	var interrupted_player_lines: Array[String] = _format_interrupted_player_message_lines(context.interrupted_player_messages)
+	var interrupted_event_lines: Array[String] = _format_interrupted_system_event_lines(context.interrupted_system_events)
+	var lines: Array[String] = [
 		"Protocol: agent_output.v1",
-		"Character name: %s" % context.character_name,
-		"Character profile: %s" % context.character_profile,
+		"Current player display name: %s" % context.player_display_name,
 		"Character status: %s" % JSON.stringify(context.character_status),
-		"Hunger prompt hint: %s" % context.hunger_prompt_hint,
 		"Current auto explore interval seconds: %d" % int(context.auto_explore_interval_seconds),
 		"Time: %s" % context.format_clock(),
 		"Location: %s" % context.current_location_name,
@@ -125,7 +158,18 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		"set_value reminder: always include params.key and params.value. Never omit key.",
 		"set_auto_explore_interval reminder: seconds must be an integer between 10 and 60.",
 		"Player message: %s" % message
-	])
+	]
+	if not context.interrupted_player_messages.is_empty():
+		lines.insert(lines.size() - 1, "Interrupted player messages:")
+		lines.insert(lines.size() - 1, "\n".join(interrupted_player_lines))
+	if not context.interrupted_system_events.is_empty():
+		lines.insert(lines.size() - 1, "Interrupted system events:")
+		lines.insert(lines.size() - 1, "\n".join(interrupted_event_lines))
+	if bool(context.should_ask_player_name_hint):
+		lines.insert(lines.size() - 1, "Extra intent hint: 你很想问问通讯器另一头的那个人的名字，以及他是来自哪里的。请自然地把这份好奇融入回复里，不要显得生硬。")
+	if not String(context.hunger_prompt_hint).strip_edges().is_empty():
+		lines.insert(4, "Hunger prompt hint: %s" % context.hunger_prompt_hint)
+	return "\n".join(lines)
 
 
 func build_request_payload_for_player_message(message: String, context, world_graph: WorldGraph) -> Dictionary:
@@ -134,6 +178,22 @@ func build_request_payload_for_player_message(message: String, context, world_gr
 
 func build_request_payload_for_system_event(event, context, world_graph: WorldGraph) -> Dictionary:
 	return _build_request_payload_from_prompt(build_system_event_prompt(event, context, world_graph))
+
+
+func _build_name_extraction_payload(message: String) -> Dictionary:
+	var prompt := "\n".join([
+		"玩家消息: %s" % message
+	])
+	var extraction_system_prompt := "\n".join([
+		"你是一个名字提取器。",
+		"你的任务只是从玩家消息中提取玩家自报的名字。",
+		"如果消息里没有明确说出自己的名字，返回空字符串。",
+		"不要猜，不要解释，不要补充。",
+		"只返回有效 JSON。",
+		"Schema:",
+		"{\"player_name\": string}"
+	])
+	return _build_request_payload_from_prompt(prompt, extraction_system_prompt)
 
 
 func build_system_event_prompt(event, context, world_graph: WorldGraph) -> String:
@@ -155,15 +215,14 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 	var current_location_object_lines: Array[String] = _format_visible_object_lines(context.current_location_objects)
 	var inventory_object_lines: Array[String] = _format_visible_object_lines(context.inventory_objects)
 	var memory_lines: Array[String] = _format_memory_lines(context.memory_entries)
-
-	return "\n".join([
+	var interrupted_player_lines: Array[String] = _format_interrupted_player_message_lines(context.interrupted_player_messages)
+	var interrupted_event_lines: Array[String] = _format_interrupted_system_event_lines(context.interrupted_system_events)
+	var lines: Array[String] = [
 		"Protocol: agent_output.v1",
 		"Trigger type: system_event",
 		"Trigger reason: %s" % str(context.trigger_reason),
-		"Character name: %s" % context.character_name,
-		"Character profile: %s" % context.character_profile,
+		"Current player display name: %s" % context.player_display_name,
 		"Character status: %s" % JSON.stringify(context.character_status),
-		"Hunger prompt hint: %s" % context.hunger_prompt_hint,
 		"Current auto explore interval seconds: %d" % int(context.auto_explore_interval_seconds),
 		"Time: %s" % context.format_clock(),
 		"Location: %s" % context.current_location_name,
@@ -188,7 +247,16 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"System event type: %s" % str(event.event_type),
 		"System event summary: %s" % str(event.summary_text),
 		"System event payload: %s" % JSON.stringify(event.payload)
-	])
+	]
+	if not context.interrupted_player_messages.is_empty():
+		lines.insert(lines.size() - 3, "Interrupted player messages:")
+		lines.insert(lines.size() - 3, "\n".join(interrupted_player_lines))
+	if not context.interrupted_system_events.is_empty():
+		lines.insert(lines.size() - 3, "Interrupted system events:")
+		lines.insert(lines.size() - 3, "\n".join(interrupted_event_lines))
+	if not String(context.hunger_prompt_hint).strip_edges().is_empty():
+		lines.insert(6, "Hunger prompt hint: %s" % context.hunger_prompt_hint)
+	return "\n".join(lines)
 
 
 func _format_visible_object_lines(objects: Array) -> Array[String]:
@@ -221,13 +289,42 @@ func _format_memory_lines(entries: Array) -> Array[String]:
 	return lines if not lines.is_empty() else ["- none"]
 
 
-func _build_request_payload_from_prompt(prompt_text: String) -> Dictionary:
+func _format_interrupted_player_message_lines(messages: Array) -> Array[String]:
+	var lines: Array[String] = []
+	if messages.is_empty():
+		return ["- none"]
+	for message_variant in messages:
+		var text := str(message_variant).strip_edges()
+		if text.is_empty():
+			continue
+		lines.append("- %s" % text)
+	return lines if not lines.is_empty() else ["- none"]
+
+
+func _format_interrupted_system_event_lines(events: Array) -> Array[String]:
+	var lines: Array[String] = []
+	if events.is_empty():
+		return ["- none"]
+	for event_variant in events:
+		if typeof(event_variant) != TYPE_DICTIONARY:
+			continue
+		var event_data: Dictionary = event_variant
+		lines.append("- %s | %s | payload=%s" % [
+			str(event_data.get("event_type", "unknown")),
+			str(event_data.get("summary_text", "")),
+			JSON.stringify(event_data.get("payload", {}))
+		])
+	return lines if not lines.is_empty() else ["- none"]
+
+
+func _build_request_payload_from_prompt(prompt_text: String, system_prompt_override: String = "") -> Dictionary:
+	var final_system_prompt := build_system_prompt() if system_prompt_override.strip_edges().is_empty() else system_prompt_override
 	if _is_gemini_model():
 		return {
 			"systemInstruction": {
 				"parts": [
 					{
-						"text": build_system_prompt()
+						"text": final_system_prompt
 					}
 				]
 			},
@@ -253,7 +350,7 @@ func _build_request_payload_from_prompt(prompt_text: String) -> Dictionary:
 		"messages": [
 			{
 				"role": "system",
-				"content": build_system_prompt()
+				"content": final_system_prompt
 			},
 			{
 				"role": "user",
@@ -441,6 +538,34 @@ func _parse_gemini_response_to_output(response_body: Dictionary, message: String
 	return output
 
 
+func _parse_name_extraction_response(response_body: Dictionary) -> String:
+	if _is_gemini_model():
+		var candidates: Array = response_body.get("candidates", [])
+		if candidates.is_empty():
+			return ""
+		var content: Dictionary = candidates[0].get("content", {})
+		var parts: Array = content.get("parts", [])
+		if parts.is_empty():
+			return ""
+		var raw_text := str(parts[0].get("text", "")).strip_edges()
+		if raw_text.is_empty():
+			return ""
+		var parsed = JSON.parse_string(raw_text)
+		if typeof(parsed) != TYPE_DICTIONARY:
+			return ""
+		return str(parsed.get("player_name", "")).strip_edges()
+	var choices: Array = response_body.get("choices", [])
+	if choices.is_empty():
+		return ""
+	var message_content := str(choices[0].get("message", {}).get("content", "")).strip_edges()
+	if message_content.is_empty():
+		return ""
+	var parsed = JSON.parse_string(message_content)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return ""
+	return str(parsed.get("player_name", "")).strip_edges()
+
+
 func _extract_content_text(content_variant: Variant) -> String:
 	if typeof(content_variant) == TYPE_STRING:
 		return String(content_variant)
@@ -513,6 +638,12 @@ func _build_endpoint_url() -> String:
 			gemini_base_url = gemini_base_url.trim_suffix("/v1")
 		return "%s/v1beta/models/%s%%3AgenerateContent" % [gemini_base_url, RuntimeConfig.get_model_name()]
 	return base_url + "/chat/completions"
+
+
+func _load_persona_prompt() -> String:
+	if not FileAccess.file_exists(PERSONA_PROMPT_PATH):
+		return ""
+	return FileAccess.get_file_as_string(PERSONA_PROMPT_PATH).strip_edges()
 
 
 func _is_gemini_model() -> bool:

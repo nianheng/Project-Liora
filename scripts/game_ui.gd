@@ -69,8 +69,6 @@ var paused := false
 var world_graph := WorldGraph.new()
 var world_objects := WorldObjects.new()
 var current_agent = null
-var girl_name: String = "迫降的星际探险少女"
-var girl_profile: String = "一名在深空任务中遭遇迫降的年轻探险少女。她刚从休眠舱醒来，已经独自在失事飞船里撑过三天。她受过基础工程与野外调查训练，警惕、坚韧，也会因为长时间独处而格外珍惜来之不易的联系。"
 var girl_favorability: int = 42
 var girl_satiety: int = 57
 var girl_ideology: int = 61
@@ -80,10 +78,19 @@ var system_agent_desired_location_ids: Array[String] = []
 var system_agent_short_term_goal: String = "保持通讯稳定并评估周边区域。"
 var system_recent_dialogue_summary: String = "玩家与少女刚建立无线电联系，正在规划下一步探索。"
 var girl_memory_entries: Array[String] = []
+var girl_display_name := "-----"
+var girl_identity_revealed := false
+var player_display_name := "-----"
+var player_name_known := false
+var player_name_hint_pending := false
+var first_player_u2a_completed := false
+var interrupted_player_messages: Array[String] = []
+var interrupted_system_events: Array[Dictionary] = []
 var selected_location_id := ""
 var unlocked_requirements: Array[String] = ["light_source"]
 var agent_state: String = "EXPLORING"
 var prologue_intro_played := false
+var prologue_contact_confirmed := false
 var travel_origin_id: String = ""
 var travel_destination_id: String = ""
 var travel_remaining_seconds: int = 0
@@ -1082,17 +1089,24 @@ func play_first_contact_intro() -> void:
 	if prologue_intro_played:
 		return
 	prologue_intro_played = true
-	objective_label.text = "目标：完成首次通讯，帮助少女确认飞船内部现状。"
-	system_agent_short_term_goal = "完成首次通讯，帮助少女确认飞船内部的关键状况。"
-	system_recent_dialogue_summary = "少女刚通过无线电与玩家建立联系，正在说明自己迫降后的处境。"
+	objective_label.text = "目标：回应无线电呼叫，先与少女建立稳定通讯。"
+	system_agent_short_term_goal = "先确认无线电另一端是否有人稳定回应。"
+	system_recent_dialogue_summary = "少女正在通过无线电反复尝试呼叫未知对象，希望确认通讯另一端是否真的有人存在。"
 	await get_tree().create_timer(1.0).timeout
-	append_log("[少女] 喂？能听见吗？太好了，终于有人回应我了。")
-	await get_tree().create_timer(1.6).timeout
-	append_log("[少女] 我刚从休眠舱里醒来，发现乘坐的飞船迫降在一颗陌生的星球上。")
-	await get_tree().create_timer(2.0).timeout
-	append_log("[少女] 从我醒来到现在已经过去三天了。这三天我一直在摸索飞船里还能不能用的东西，刚才摆弄无线电时正好联系上了你。")
-	await get_tree().create_timer(1.8).timeout
-	append_log("[少女] 我现在在休息室。飞船内部勉强还能活动，但很多系统都不太稳定。你愿意先陪我确认一下这艘船现在到底是什么情况吗？")
+	var opening_lines := [
+		"Hello?",
+		"Allô ?",
+		"Hallo?",
+		"Алло ?",
+		"여보세요?",
+		"もしもし？",
+		"有人吗？",
+		"如果你能听见，随便回我一句什么都行。哪怕一个字也行。"
+	]
+	for index in range(opening_lines.size()):
+		var line: String = opening_lines[index]
+		await get_tree().create_timer(get_scripted_line_delay_seconds(line)).timeout
+		append_scripted_girl_line(line)
 	render_graph_data()
 
 
@@ -1254,14 +1268,29 @@ func toggle_pause() -> void:
 	pause_overlay.visible = paused
 
 
+func record_interrupted_player_message(message: String) -> void:
+	var normalized := message.strip_edges()
+	if normalized.is_empty():
+		return
+	interrupted_player_messages.append(normalized)
+
+
+func record_interrupted_system_event(event) -> void:
+	if event == null:
+		return
+	interrupted_system_events.append({
+		"event_type": str(event.event_type),
+		"summary_text": str(event.summary_text),
+		"payload": event.payload
+	})
+
+
 func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYER_MESSAGE, trigger_reason: String = "player_submitted_message"):
 	var context = AgentContextScript.new()
 	context.trigger_type = trigger_type
 	context.trigger_reason = trigger_reason
 	context.world_time_seconds = world_time_seconds
 	context.agent_state = agent_state
-	context.character_name = girl_name
-	context.character_profile = girl_profile
 	context.character_status = {
 		"favorability": girl_favorability,
 		"satiety": girl_satiety,
@@ -1274,6 +1303,12 @@ func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYE
 	context.recent_dialogue_summary = system_recent_dialogue_summary
 	context.desired_location_ids = system_agent_desired_location_ids.duplicate()
 	context.memory_entries = girl_memory_entries.duplicate()
+	context.player_display_name = player_display_name
+	context.should_ask_player_name_hint = not first_player_u2a_completed
+	context.interrupted_player_messages = interrupted_player_messages.duplicate()
+	context.interrupted_system_events = interrupted_system_events.duplicate()
+	interrupted_player_messages.clear()
+	interrupted_system_events.clear()
 	context.current_location_objects = build_visible_objects_for_holder(world_graph.current_location_id)
 	context.inventory_objects = build_visible_objects_for_holder("girl")
 	context.allowed_command_types.clear()
@@ -1340,6 +1375,67 @@ func append_girl_memory_reply(reply_text: String, commands: Array = []) -> void:
 	girl_memory_entries.append("\n".join(lines))
 
 
+func get_girl_speaker_prefix() -> String:
+	return "[%s]" % girl_display_name
+
+
+func get_player_speaker_prefix() -> String:
+	return "[%s]" % player_display_name
+
+
+func update_girl_display_identity_from_text(text: String) -> void:
+	if girl_identity_revealed:
+		return
+	if text.find("Liora") != -1:
+		girl_identity_revealed = true
+		girl_display_name = "Liora"
+
+
+func split_reply_text_into_lines(reply_text: String) -> Array[String]:
+	var lines: Array[String] = []
+	for raw_line_variant in reply_text.split("\n", false):
+		var raw_line: String = str(raw_line_variant)
+		var line := raw_line.strip_edges()
+		if not line.is_empty():
+			lines.append(line)
+	return lines
+
+
+func display_girl_reply_lines(reply_text: String, trigger_label: String) -> void:
+	var normalized_trigger_label := trigger_label
+	if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
+		normalized_trigger_label = get_girl_speaker_prefix()
+	var lines := split_reply_text_into_lines(reply_text)
+	if lines.is_empty():
+		return
+	for index in range(lines.size()):
+		var line: String = lines[index]
+		await get_tree().create_timer(get_scripted_line_delay_seconds(line)).timeout
+		append_log("%s %s" % [normalized_trigger_label, line])
+		update_girl_display_identity_from_text(line)
+
+
+func apply_player_name_if_detected(candidate_name: String) -> void:
+	var normalized_name := candidate_name.strip_edges()
+	if normalized_name.is_empty():
+		return
+	player_name_known = true
+	player_name_hint_pending = false
+	player_display_name = normalized_name
+
+
+func append_scripted_girl_line(line_text: String) -> void:
+	append_log("%s %s" % [get_girl_speaker_prefix(), line_text])
+	append_girl_memory_reply(line_text, [])
+	update_girl_display_identity_from_text(line_text)
+
+
+func get_scripted_line_delay_seconds(line_text: String, base_delay: float = 0.5, per_char_delay: float = 0.15, max_delay: float = 5.2) -> float:
+	var content_length := line_text.strip_edges().length()
+	var jitter := randf_range(-0.3, 0.3)
+	return clampf(base_delay + float(content_length) * per_char_delay + jitter, 0.35, max_delay)
+
+
 func build_player_memory_entry(message: String) -> String:
 	return "\n".join([
 		"[玩家输入]",
@@ -1386,7 +1482,22 @@ func apply_agent_output(agent_output, trigger_label: String) -> void:
 	if not str(agent_output.reply_text).is_empty() or not agent_output.commands.is_empty():
 		append_girl_memory_reply(str(agent_output.reply_text), agent_output.commands)
 	if not str(agent_output.reply_text).is_empty():
-		append_log("%s %s" % [trigger_label, str(agent_output.reply_text)])
+		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label)
+	execute_command_set(agent_output.commands)
+	var desired_names: Array[String] = get_system_desired_location_names()
+	if not desired_names.is_empty():
+		append_log("[系统] 当前希望前往的位置队列：%s" % " -> ".join(desired_names))
+	append_log("[系统] 当前短期目标：%s" % system_agent_short_term_goal)
+
+
+func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, reply_delay_seconds: float) -> void:
+	if agent_output == null:
+		return
+	if not str(agent_output.reply_text).is_empty() or not agent_output.commands.is_empty():
+		append_girl_memory_reply(str(agent_output.reply_text), agent_output.commands)
+	if not str(agent_output.reply_text).is_empty():
+		await get_tree().create_timer(reply_delay_seconds).timeout
+		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label)
 	execute_command_set(agent_output.commands)
 	var desired_names: Array[String] = get_system_desired_location_names()
 	if not desired_names.is_empty():
@@ -1421,7 +1532,7 @@ func _dispatch_system_event_async(event) -> void:
 		agent_output = current_agent.process_system_event(event, context, world_graph)
 	agent_request_in_flight = false
 	reset_agent_exchange_timer()
-	apply_agent_output(agent_output, "[少女]")
+	await apply_agent_output(agent_output, "[少女]")
 	process_pending_system_events()
 
 
@@ -1876,22 +1987,36 @@ func _on_send_pressed() -> void:
 	if agent_request_in_flight:
 		append_log("[系统] 少女仍在整理上一条请求的回应，请稍等一下再发送新消息。")
 		return
-	append_log("[玩家] " + message)
-	system_recent_dialogue_summary = "玩家最近一次输入：%s" % message
-	var context = build_agent_context()
+	append_log("%s %s" % [get_player_speaker_prefix(), message])
+	if not prologue_contact_confirmed:
+		prologue_contact_confirmed = true
+		objective_label.text = "目标：完成首次通讯，帮助少女确认飞船内部现状。"
+		system_agent_short_term_goal = "完成首次通讯，帮助少女确认飞船内部的关键状况。"
+		system_recent_dialogue_summary = "玩家首次回应了无线电呼叫，少女开始与玩家进行正式交流。"
+	else:
+		system_recent_dialogue_summary = "玩家最近一次输入：%s" % message
+	agent_request_in_flight = true
 	append_girl_memory_input(build_player_memory_entry(message))
+	var context = build_agent_context()
 	append_log("[系统] 已向少女同步世界信息：时间 %s，当前位置 %s。" % [
 		context.format_clock(),
 		context.current_location_name
 	])
-	agent_request_in_flight = true
 	var agent_output
 	if current_agent.is_async():
 		agent_output = await current_agent.process_player_message_async(self, message, context, world_graph)
 	else:
 		agent_output = current_agent.process_player_message(message, context, world_graph)
+	await apply_agent_output(agent_output, "[少女]")
+	if not first_player_u2a_completed:
+		first_player_u2a_completed = true
+		player_name_hint_pending = true
+	elif player_name_hint_pending and not player_name_known:
+		var extracted_player_name := ""
+		if current_agent.is_async():
+			extracted_player_name = await current_agent.extract_player_name_async(self, message)
+		apply_player_name_if_detected(extracted_player_name)
 	agent_request_in_flight = false
-	apply_agent_output(agent_output, "[少女]")
 	reset_agent_exchange_timer()
 	input_box.clear()
 	process_pending_system_events()
