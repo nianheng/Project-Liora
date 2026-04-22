@@ -156,14 +156,14 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
 		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
 		"set_value reminder: always include params.key and params.value. Never omit key.",
-		"set_auto_explore_interval reminder: seconds must be an integer between 10 and 60.",
-		"Player message: %s" % message
+		"set_auto_explore_interval reminder: seconds must be an integer between 10 and 60."
 	]
 	if not context.interrupted_player_messages.is_empty():
-		lines.insert(lines.size() - 1, "Interrupted player messages:")
+		lines.insert(lines.size() - 1, "Player message:")
 		lines.insert(lines.size() - 1, "\n".join(interrupted_player_lines))
+	lines.insert(lines.size() - 1, "Player message: %s" % message)
 	if not context.interrupted_system_events.is_empty():
-		lines.insert(lines.size() - 1, "Interrupted system events:")
+		lines.insert(lines.size() - 1, "system events:")
 		lines.insert(lines.size() - 1, "\n".join(interrupted_event_lines))
 	if bool(context.should_ask_player_name_hint):
 		lines.insert(lines.size() - 1, "Extra intent hint: 你很想问问通讯器另一头的那个人的名字，以及他是来自哪里的。请自然地把这份好奇融入回复里，不要显得生硬。")
@@ -182,14 +182,18 @@ func build_request_payload_for_system_event(event, context, world_graph: WorldGr
 
 func _build_name_extraction_payload(message: String) -> Dictionary:
 	var prompt := "\n".join([
-		"玩家消息: %s" % message
+		"???????????????????????????????????????",
+		"??????????????????????????????",
+		"",
+		"?????",
+		message
 	])
 	var extraction_system_prompt := "\n".join([
-		"你是一个名字提取器。",
-		"你的任务只是从玩家消息中提取玩家自报的名字。",
-		"如果消息里没有明确说出自己的名字，返回空字符串。",
-		"不要猜，不要解释，不要补充。",
-		"只返回有效 JSON。",
+		"??????????",
+		"???????????????????????????????",
+		"???????????????",
+		"???????????????",
+		"????? JSON?",
 		"Schema:",
 		"{\"player_name\": string}"
 	])
@@ -249,10 +253,10 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"System event payload: %s" % JSON.stringify(event.payload)
 	]
 	if not context.interrupted_player_messages.is_empty():
-		lines.insert(lines.size() - 3, "Interrupted player messages:")
+		lines.insert(lines.size() - 3, "player messages:")
 		lines.insert(lines.size() - 3, "\n".join(interrupted_player_lines))
 	if not context.interrupted_system_events.is_empty():
-		lines.insert(lines.size() - 3, "Interrupted system events:")
+		lines.insert(lines.size() - 3, "system events:")
 		lines.insert(lines.size() - 3, "\n".join(interrupted_event_lines))
 	if not String(context.hunger_prompt_hint).strip_edges().is_empty():
 		lines.insert(6, "Hunger prompt hint: %s" % context.hunger_prompt_hint)

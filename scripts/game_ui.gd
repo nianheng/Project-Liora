@@ -86,6 +86,9 @@ var player_name_hint_pending := false
 var first_player_u2a_completed := false
 var interrupted_player_messages: Array[String] = []
 var interrupted_system_events: Array[Dictionary] = []
+var agent_request_serial: int = 0
+var active_request_player_messages: Array[String] = []
+var active_request_system_events: Array[Dictionary] = []
 var selected_location_id := ""
 var unlocked_requirements: Array[String] = ["light_source"]
 var agent_state: String = "EXPLORING"
@@ -99,6 +102,7 @@ var planned_route: Array[String] = []
 var seconds_since_last_agent_exchange: int = 0
 var auto_explore_interval_seconds: int = 240
 var agent_request_in_flight := false
+var applying_agent_output := false
 var pending_system_events: Array = []
 var show_system_messages := false
 var world_timer: Timer
@@ -1285,6 +1289,48 @@ func record_interrupted_system_event(event) -> void:
 	})
 
 
+func snapshot_system_event(event) -> Dictionary:
+	if event == null:
+		return {}
+	return {
+		"event_type": str(event.event_type),
+		"summary_text": str(event.summary_text),
+		"payload": event.payload.duplicate(true)
+	}
+
+
+func capture_active_request_snapshot(context, player_message: String = "", event = null) -> void:
+	active_request_player_messages = context.interrupted_player_messages.duplicate()
+	active_request_system_events = context.interrupted_system_events.duplicate(true)
+	var normalized_message := player_message.strip_edges()
+	if not normalized_message.is_empty():
+		active_request_player_messages.append(normalized_message)
+	var event_snapshot := snapshot_system_event(event)
+	if not event_snapshot.is_empty():
+		active_request_system_events.append(event_snapshot)
+
+
+func clear_active_request_snapshot() -> void:
+	active_request_player_messages.clear()
+	active_request_system_events.clear()
+
+
+func interrupt_active_agent_request() -> void:
+	if not agent_request_in_flight:
+		return
+	for message in active_request_player_messages:
+		record_interrupted_player_message(message)
+	for event_data in active_request_system_events:
+		interrupted_system_events.append(event_data.duplicate(true))
+	agent_request_serial += 1
+	clear_active_request_snapshot()
+	agent_request_in_flight = false
+
+
+func is_request_serial_current(request_serial: int) -> bool:
+	return request_serial == agent_request_serial
+
+
 func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYER_MESSAGE, trigger_reason: String = "player_submitted_message"):
 	var context = AgentContextScript.new()
 	context.trigger_type = trigger_type
@@ -1346,6 +1392,76 @@ func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYE
 	return context
 
 
+func start_player_agent_request(message: String) -> void:
+	_run_player_agent_request_async(message)
+
+
+func start_system_event_agent_request(event) -> void:
+	_run_system_event_agent_request_async(event)
+
+
+func _run_player_agent_request_async(message: String) -> void:
+	var context = build_agent_context()
+	var source_memory_entry := build_player_memory_entry(message)
+	append_log("[系统] 已向少女同步世界信息：时间 %s，当前位置 %s。" % [
+		context.format_clock(),
+		context.current_location_name
+	])
+	agent_request_serial += 1
+	var request_serial := agent_request_serial
+	agent_request_in_flight = true
+	capture_active_request_snapshot(context, message, null)
+	var agent_output
+	if current_agent.is_async():
+		agent_output = await current_agent.process_player_message_async(self, message, context, world_graph)
+	else:
+		agent_output = current_agent.process_player_message(message, context, world_graph)
+	if not is_request_serial_current(request_serial):
+		return
+	await apply_agent_output(agent_output, "[少女]", request_serial, source_memory_entry)
+	if not is_request_serial_current(request_serial):
+		return
+	if not first_player_u2a_completed:
+		first_player_u2a_completed = true
+		player_name_hint_pending = true
+	elif player_name_hint_pending and not player_name_known:
+		var extracted_player_name := ""
+		if current_agent.is_async():
+			extracted_player_name = await current_agent.extract_player_name_async(self, build_player_name_extraction_source())
+		if not is_request_serial_current(request_serial):
+			return
+		apply_player_name_if_detected(extracted_player_name)
+	agent_request_in_flight = false
+	clear_active_request_snapshot()
+	reset_agent_exchange_timer()
+	process_pending_system_events()
+
+
+func _run_system_event_agent_request_async(event) -> void:
+	var context = build_agent_context(AgentContextScript.TRIGGER_SYSTEM_EVENT, str(event.event_type))
+	var source_memory_entry := build_system_event_memory_entry(event)
+	append_log("[系统] 已触发 S->A 事件：%s" % str(event.summary_text))
+	system_recent_dialogue_summary = "最近一次系统事件：%s" % str(event.summary_text)
+	agent_request_serial += 1
+	var request_serial := agent_request_serial
+	agent_request_in_flight = true
+	capture_active_request_snapshot(context, "", event)
+	var agent_output
+	if current_agent.is_async():
+		agent_output = await current_agent.process_system_event_async(self, event, context, world_graph)
+	else:
+		agent_output = current_agent.process_system_event(event, context, world_graph)
+	if not is_request_serial_current(request_serial):
+		return
+	await apply_agent_output(agent_output, "[少女]", request_serial, source_memory_entry)
+	if not is_request_serial_current(request_serial):
+		return
+	agent_request_in_flight = false
+	clear_active_request_snapshot()
+	reset_agent_exchange_timer()
+	process_pending_system_events()
+
+
 func build_visible_objects_for_holder(holder_id: String) -> Array[Dictionary]:
 	var results: Array[Dictionary] = []
 	for object_data in world_objects.get_objects_by_holder(holder_id):
@@ -1363,17 +1479,20 @@ func append_girl_memory_input(entry: String) -> void:
 	girl_memory_entries.append(normalized)
 
 
-func append_girl_memory_reply(reply_text: String, commands: Array = []) -> void:
+func append_girl_memory_reply_line(reply_text: String) -> void:
 	var normalized_reply: String = reply_text.strip_edges()
-	var command_summary: String = JSON.stringify(_serialize_agent_commands(commands))
-	if normalized_reply.is_empty() and command_summary == "[]":
+	if normalized_reply.is_empty():
 		return
-	var lines: Array[String] = ["[少女回复]"]
-	if not normalized_reply.is_empty():
-		lines.append("文本: %s" % normalized_reply)
-	lines.append("指令集: %s" % command_summary)
+	var lines: Array[String] = ["[????]", "??: %s" % normalized_reply]
 	girl_memory_entries.append("\n".join(lines))
 
+
+func append_girl_memory_reply_commands(commands: Array = []) -> void:
+	var command_summary: String = JSON.stringify(_serialize_agent_commands(commands))
+	if command_summary == "[]":
+		return
+	var lines: Array[String] = ["[????]", "???: %s" % command_summary]
+	girl_memory_entries.append("\n".join(lines))
 
 func get_girl_speaker_prefix() -> String:
 	return "[%s]" % girl_display_name
@@ -1401,19 +1520,28 @@ func split_reply_text_into_lines(reply_text: String) -> Array[String]:
 	return lines
 
 
-func display_girl_reply_lines(reply_text: String, trigger_label: String) -> void:
+func display_girl_reply_lines(reply_text: String, trigger_label: String, request_serial: int = -1, source_memory_entry: String = "") -> bool:
 	var normalized_trigger_label := trigger_label
-	if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
+	if trigger_label == "[??]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
 		normalized_trigger_label = get_girl_speaker_prefix()
 	var lines := split_reply_text_into_lines(reply_text)
 	if lines.is_empty():
-		return
+		return false
+	var source_memory_committed := false
 	for index in range(lines.size()):
 		var line: String = lines[index]
+		if request_serial != -1 and not is_request_serial_current(request_serial):
+			return source_memory_committed
 		await get_tree().create_timer(get_scripted_line_delay_seconds(line)).timeout
+		if request_serial != -1 and not is_request_serial_current(request_serial):
+			return source_memory_committed
+		if not source_memory_committed and not source_memory_entry.strip_edges().is_empty():
+			append_girl_memory_input(source_memory_entry)
+			source_memory_committed = true
 		append_log("%s %s" % [normalized_trigger_label, line])
+		append_girl_memory_reply_line(line)
 		update_girl_display_identity_from_text(line)
-
+	return source_memory_committed
 
 func apply_player_name_if_detected(candidate_name: String) -> void:
 	var normalized_name := candidate_name.strip_edges()
@@ -1424,9 +1552,13 @@ func apply_player_name_if_detected(candidate_name: String) -> void:
 	player_display_name = normalized_name
 
 
+func build_player_name_extraction_source() -> String:
+	return "\n\n".join(girl_memory_entries)
+
+
 func append_scripted_girl_line(line_text: String) -> void:
 	append_log("%s %s" % [get_girl_speaker_prefix(), line_text])
-	append_girl_memory_reply(line_text, [])
+	append_girl_memory_reply_line(line_text)
 	update_girl_display_identity_from_text(line_text)
 
 
@@ -1476,33 +1608,54 @@ func _serialize_agent_commands(commands: Array) -> Array[Dictionary]:
 	return serialized
 
 
-func apply_agent_output(agent_output, trigger_label: String) -> void:
+func apply_agent_output(agent_output, trigger_label: String, request_serial: int = -1, source_memory_entry: String = "") -> void:
 	if agent_output == null:
 		return
-	if not str(agent_output.reply_text).is_empty() or not agent_output.commands.is_empty():
-		append_girl_memory_reply(str(agent_output.reply_text), agent_output.commands)
+	applying_agent_output = true
+	var source_memory_committed := false
 	if not str(agent_output.reply_text).is_empty():
-		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label)
-	execute_command_set(agent_output.commands)
+		source_memory_committed = await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial, source_memory_entry)
+	if request_serial != -1 and not is_request_serial_current(request_serial):
+		applying_agent_output = false
+		return
+	if not source_memory_committed and not source_memory_entry.strip_edges().is_empty():
+		append_girl_memory_input(source_memory_entry)
+		source_memory_committed = true
+	if request_serial == -1 or is_request_serial_current(request_serial):
+		execute_command_set(agent_output.commands)
+		append_girl_memory_reply_commands(agent_output.commands)
 	var desired_names: Array[String] = get_system_desired_location_names()
 	if not desired_names.is_empty():
 		append_log("[系统] 当前希望前往的位置队列：%s" % " -> ".join(desired_names))
 	append_log("[系统] 当前短期目标：%s" % system_agent_short_term_goal)
+	applying_agent_output = false
 
 
-func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, reply_delay_seconds: float) -> void:
+func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, reply_delay_seconds: float, request_serial: int = -1, source_memory_entry: String = "") -> void:
 	if agent_output == null:
 		return
-	if not str(agent_output.reply_text).is_empty() or not agent_output.commands.is_empty():
-		append_girl_memory_reply(str(agent_output.reply_text), agent_output.commands)
+	applying_agent_output = true
+	var source_memory_committed := false
 	if not str(agent_output.reply_text).is_empty():
 		await get_tree().create_timer(reply_delay_seconds).timeout
-		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label)
-	execute_command_set(agent_output.commands)
+		if request_serial != -1 and not is_request_serial_current(request_serial):
+			applying_agent_output = false
+			return
+		source_memory_committed = await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial, source_memory_entry)
+	if request_serial != -1 and not is_request_serial_current(request_serial):
+		applying_agent_output = false
+		return
+	if not source_memory_committed and not source_memory_entry.strip_edges().is_empty():
+		append_girl_memory_input(source_memory_entry)
+		source_memory_committed = true
+	if request_serial == -1 or is_request_serial_current(request_serial):
+		execute_command_set(agent_output.commands)
+		append_girl_memory_reply_commands(agent_output.commands)
 	var desired_names: Array[String] = get_system_desired_location_names()
 	if not desired_names.is_empty():
 		append_log("[系统] 当前希望前往的位置队列：%s" % " -> ".join(desired_names))
 	append_log("[系统] 当前短期目标：%s" % system_agent_short_term_goal)
+	applying_agent_output = false
 
 
 func reset_agent_exchange_timer() -> void:
@@ -1512,29 +1665,15 @@ func reset_agent_exchange_timer() -> void:
 func dispatch_system_event(event) -> void:
 	if event == null:
 		return
-	if agent_request_in_flight:
+	if applying_agent_output:
 		pending_system_events.append(event)
-		append_log("[系统] LLM 请求仍在处理中，系统事件已排队等待后续执行。")
 		return
-	_dispatch_system_event_async(event)
-
+	if agent_request_in_flight:
+		interrupt_active_agent_request()
+	start_system_event_agent_request(event)
 
 func _dispatch_system_event_async(event) -> void:
-	var context = build_agent_context(AgentContextScript.TRIGGER_SYSTEM_EVENT, str(event.event_type))
-	append_girl_memory_input(build_system_event_memory_entry(event))
-	append_log("[系统] 已触发 S->A 事件：%s" % str(event.summary_text))
-	system_recent_dialogue_summary = "最近一次系统事件：%s" % str(event.summary_text)
-	agent_request_in_flight = true
-	var agent_output
-	if current_agent.is_async():
-		agent_output = await current_agent.process_system_event_async(self, event, context, world_graph)
-	else:
-		agent_output = current_agent.process_system_event(event, context, world_graph)
-	agent_request_in_flight = false
-	reset_agent_exchange_timer()
-	await apply_agent_output(agent_output, "[少女]")
-	process_pending_system_events()
-
+	start_system_event_agent_request(event)
 
 func get_system_desired_location_names() -> Array[String]:
 	var names: Array[String] = []
@@ -1984,9 +2123,6 @@ func _on_send_pressed() -> void:
 	var message := input_box.text.strip_edges()
 	if message.is_empty():
 		return
-	if agent_request_in_flight:
-		append_log("[系统] 少女仍在整理上一条请求的回应，请稍等一下再发送新消息。")
-		return
 	append_log("%s %s" % [get_player_speaker_prefix(), message])
 	if not prologue_contact_confirmed:
 		prologue_contact_confirmed = true
@@ -1995,45 +2131,22 @@ func _on_send_pressed() -> void:
 		system_recent_dialogue_summary = "玩家首次回应了无线电呼叫，少女开始与玩家进行正式交流。"
 	else:
 		system_recent_dialogue_summary = "玩家最近一次输入：%s" % message
-	agent_request_in_flight = true
-	append_girl_memory_input(build_player_memory_entry(message))
-	var context = build_agent_context()
-	append_log("[系统] 已向少女同步世界信息：时间 %s，当前位置 %s。" % [
-		context.format_clock(),
-		context.current_location_name
-	])
-	var agent_output
-	if current_agent.is_async():
-		agent_output = await current_agent.process_player_message_async(self, message, context, world_graph)
-	else:
-		agent_output = current_agent.process_player_message(message, context, world_graph)
-	await apply_agent_output(agent_output, "[少女]")
-	if not first_player_u2a_completed:
-		first_player_u2a_completed = true
-		player_name_hint_pending = true
-	elif player_name_hint_pending and not player_name_known:
-		var extracted_player_name := ""
-		if current_agent.is_async():
-			extracted_player_name = await current_agent.extract_player_name_async(self, message)
-		apply_player_name_if_detected(extracted_player_name)
-	agent_request_in_flight = false
-	reset_agent_exchange_timer()
+	if agent_request_in_flight:
+		interrupt_active_agent_request()
+	start_player_agent_request(message)
 	input_box.clear()
-	process_pending_system_events()
-
 
 func _on_send_submitted(_text: String) -> void:
 	_on_send_pressed()
 
 
 func process_pending_system_events() -> void:
-	if agent_request_in_flight:
+	if agent_request_in_flight or applying_agent_output:
 		return
 	if pending_system_events.is_empty():
 		return
 	var next_event = pending_system_events.pop_front()
-	_dispatch_system_event_async(next_event)
-
+	start_system_event_agent_request(next_event)
 
 func _on_quick_action(action_text: String) -> void:
 	append_log("[玩家] " + action_text)
