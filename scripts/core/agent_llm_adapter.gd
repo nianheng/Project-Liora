@@ -65,7 +65,7 @@ func build_system_prompt() -> String:
 		"Reply naturally and in character.",
 		"You are chatting through a handheld communication terminal, not writing a monologue or report.",
 		"Your reply_text must feel like manually typed live chat messages.",
-		"Keep reply_text to 1 to 4 sentences total.",
+		"Keep reply_text to 1 to 5 sentences total.",
 		"Each sentence must be on its own line, separated by newline characters.",
 		"Each sentence should usually stay within 100 Chinese characters.",
 		"For short acknowledgements, reactions, jokes, or quick answers, prefer 1 to 2 sentences.",
@@ -134,7 +134,6 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 	var interrupted_event_lines: Array[String] = _format_interrupted_system_event_lines(context.interrupted_system_events)
 	var lines: Array[String] = [
 		"Protocol: agent_output.v1",
-		"Current player display name: %s" % context.player_display_name,
 		"Character status: %s" % JSON.stringify(context.character_status),
 		"Current auto explore interval seconds: %d" % int(context.auto_explore_interval_seconds),
 		"Time: %s" % context.format_clock(),
@@ -182,18 +181,18 @@ func build_request_payload_for_system_event(event, context, world_graph: WorldGr
 
 func _build_name_extraction_payload(message: String) -> Dictionary:
 	var prompt := "\n".join([
-		"???????????????????????????????????????",
-		"??????????????????????????????",
+		"以下是当前可用的对话记忆，请从中判断玩家（与Liora对话的对象）是否明确说过自己的名字。",
+		"如果说过，请提取那个名字；如果没有明确说过，就返回空字符串。",
 		"",
-		"?????",
+		"对话记忆：",
 		message
 	])
 	var extraction_system_prompt := "\n".join([
-		"??????????",
-		"???????????????????????????????",
-		"???????????????",
-		"???????????????",
-		"????? JSON?",
+		"你是一个名字提取器。",
+		"你只负责从给定的对话记忆中提取玩家（与Liora对话的对象）明确说出的名字。",
+		"不要猜测，不要补全，不要解释。",
+		"如果无法确定，就返回空字符串。",
+		"只返回合法 JSON。",
 		"Schema:",
 		"{\"player_name\": string}"
 	])
@@ -225,7 +224,6 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"Protocol: agent_output.v1",
 		"Trigger type: system_event",
 		"Trigger reason: %s" % str(context.trigger_reason),
-		"Current player display name: %s" % context.player_display_name,
 		"Character status: %s" % JSON.stringify(context.character_status),
 		"Current auto explore interval seconds: %d" % int(context.auto_explore_interval_seconds),
 		"Time: %s" % context.format_clock(),

@@ -1404,7 +1404,7 @@ func start_system_event_agent_request(event) -> void:
 
 func _run_player_agent_request_async(message: String) -> void:
 	var context = build_agent_context()
-	var source_memory_entry := build_player_memory_entry(message)
+	var source_memory_entry := build_player_memory_entry(message, context.current_location_name)
 	var consumed_memory_entries := build_consumed_request_memory_entries(context, source_memory_entry)
 	append_log("[系统] 已向少女同步世界信息：时间 %s，当前位置 %s。" % [
 		context.format_clock(),
@@ -1449,7 +1449,7 @@ func _run_player_agent_request_async(message: String) -> void:
 
 func _run_system_event_agent_request_async(event) -> void:
 	var context = build_agent_context(AgentContextScript.TRIGGER_SYSTEM_EVENT, str(event.event_type))
-	var source_memory_entry := build_system_event_memory_entry(event)
+	var source_memory_entry := build_system_event_memory_entry(event, context.current_location_name)
 	var consumed_memory_entries := build_consumed_request_memory_entries(context, source_memory_entry)
 	append_log("[系统] 已触发 S->A 事件：%s" % str(event.summary_text))
 	system_recent_dialogue_summary = "最近一次系统事件：%s" % str(event.summary_text)
@@ -1496,7 +1496,7 @@ func append_girl_memory_reply_line(reply_text: String) -> void:
 	var normalized_reply: String = reply_text.strip_edges()
 	if normalized_reply.is_empty():
 		return
-	var lines: Array[String] = ["[????]", "??: %s" % normalized_reply]
+	var lines: Array[String] = ["[少女回复]", "文本: %s" % normalized_reply]
 	girl_memory_entries.append("\n".join(lines))
 
 
@@ -1504,7 +1504,7 @@ func append_girl_memory_reply_commands(commands: Array = []) -> void:
 	var command_summary: String = JSON.stringify(_serialize_agent_commands(commands))
 	if command_summary == "[]":
 		return
-	var lines: Array[String] = ["[????]", "???: %s" % command_summary]
+	var lines: Array[String] = ["[少女回复]", "指令集: %s" % command_summary]
 	girl_memory_entries.append("\n".join(lines))
 
 func get_girl_speaker_prefix() -> String:
@@ -1534,9 +1534,6 @@ func split_reply_text_into_lines(reply_text: String) -> Array[String]:
 
 
 func display_girl_reply_lines(reply_text: String, trigger_label: String, request_serial: int = -1) -> void:
-	var normalized_trigger_label := trigger_label
-	if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
-		normalized_trigger_label = get_girl_speaker_prefix()
 	var lines := split_reply_text_into_lines(reply_text)
 	if lines.is_empty():
 		return
@@ -1547,9 +1544,12 @@ func display_girl_reply_lines(reply_text: String, trigger_label: String, request
 		await get_tree().create_timer(get_scripted_line_delay_seconds(line)).timeout
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			return
+		update_girl_display_identity_from_text(line)
+		var normalized_trigger_label := trigger_label
+		if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
+			normalized_trigger_label = get_girl_speaker_prefix()
 		append_log("%s %s" % [normalized_trigger_label, line])
 		append_girl_memory_reply_line(line)
-		update_girl_display_identity_from_text(line)
 
 func apply_player_name_if_detected(candidate_name: String) -> void:
 	var normalized_name := candidate_name.strip_edges()
@@ -1571,9 +1571,9 @@ func build_player_name_extraction_source() -> String:
 
 
 func append_scripted_girl_line(line_text: String) -> void:
+	update_girl_display_identity_from_text(line_text)
 	append_log("%s %s" % [get_girl_speaker_prefix(), line_text])
 	append_girl_memory_reply_line(line_text)
-	update_girl_display_identity_from_text(line_text)
 
 
 func get_scripted_line_delay_seconds(line_text: String, base_delay: float = 0.5, per_char_delay: float = 0.15, max_delay: float = 5.2) -> float:
@@ -1582,16 +1582,18 @@ func get_scripted_line_delay_seconds(line_text: String, base_delay: float = 0.5,
 	return clampf(base_delay + float(content_length) * per_char_delay + jitter, 0.35, max_delay)
 
 
-func build_player_memory_entry(message: String) -> String:
+func build_player_memory_entry(message: String, location_name: String = "") -> String:
 	return "\n".join([
 		"[玩家输入]",
+		"地点: %s" % location_name,
 		"玩家消息: %s" % message
 	])
 
 
-func build_system_event_memory_entry(event) -> String:
+func build_system_event_memory_entry(event, location_name: String = "") -> String:
 	return "\n".join([
 		"[系统事件]",
+		"地点: %s" % location_name,
 		"事件摘要: %s" % str(event.summary_text),
 		"事件载荷: %s" % JSON.stringify(event.payload)
 	])
