@@ -84,6 +84,8 @@ var player_display_name := "-----"
 var player_name_known := false
 var player_name_hint_pending := false
 var first_player_u2a_completed := false
+var player_name_extraction_attempts := 0
+const PLAYER_NAME_EXTRACTION_MAX_ATTEMPTS := 3
 var interrupted_player_messages: Array[String] = []
 var interrupted_system_events: Array[Dictionary] = []
 var agent_request_serial: int = 0
@@ -1403,6 +1405,7 @@ func start_system_event_agent_request(event) -> void:
 func _run_player_agent_request_async(message: String) -> void:
 	var context = build_agent_context()
 	var source_memory_entry := build_player_memory_entry(message)
+	var consumed_memory_entries := build_consumed_request_memory_entries(context, source_memory_entry)
 	append_log("[系统] 已向少女同步世界信息：时间 %s，当前位置 %s。" % [
 		context.format_clock(),
 		context.current_location_name
@@ -1418,7 +1421,7 @@ func _run_player_agent_request_async(message: String) -> void:
 		agent_output = current_agent.process_player_message(message, context, world_graph)
 	if not is_request_serial_current(request_serial):
 		return
-	append_girl_memory_input(source_memory_entry)
+	commit_request_memory_entries(consumed_memory_entries)
 	clear_active_request_snapshot()
 	await apply_agent_output(agent_output, "[少女]", request_serial)
 	if not is_request_serial_current(request_serial):
@@ -1426,13 +1429,18 @@ func _run_player_agent_request_async(message: String) -> void:
 	if not first_player_u2a_completed:
 		first_player_u2a_completed = true
 		player_name_hint_pending = true
-	elif player_name_hint_pending and not player_name_known:
+	if player_name_hint_pending and not player_name_known:
+		player_name_extraction_attempts += 1
 		var extracted_player_name := ""
 		if current_agent.is_async():
 			extracted_player_name = await current_agent.extract_player_name_async(self, build_player_name_extraction_source())
 		if not is_request_serial_current(request_serial):
 			return
-		apply_player_name_if_detected(extracted_player_name)
+		if extracted_player_name.strip_edges().is_empty():
+			if player_name_extraction_attempts >= PLAYER_NAME_EXTRACTION_MAX_ATTEMPTS:
+				finalize_player_name_fallback()
+		else:
+			apply_player_name_if_detected(extracted_player_name)
 	agent_request_in_flight = false
 	clear_active_request_snapshot()
 	reset_agent_exchange_timer()
@@ -1442,6 +1450,7 @@ func _run_player_agent_request_async(message: String) -> void:
 func _run_system_event_agent_request_async(event) -> void:
 	var context = build_agent_context(AgentContextScript.TRIGGER_SYSTEM_EVENT, str(event.event_type))
 	var source_memory_entry := build_system_event_memory_entry(event)
+	var consumed_memory_entries := build_consumed_request_memory_entries(context, source_memory_entry)
 	append_log("[系统] 已触发 S->A 事件：%s" % str(event.summary_text))
 	system_recent_dialogue_summary = "最近一次系统事件：%s" % str(event.summary_text)
 	agent_request_serial += 1
@@ -1455,7 +1464,7 @@ func _run_system_event_agent_request_async(event) -> void:
 		agent_output = current_agent.process_system_event(event, context, world_graph)
 	if not is_request_serial_current(request_serial):
 		return
-	append_girl_memory_input(source_memory_entry)
+	commit_request_memory_entries(consumed_memory_entries)
 	clear_active_request_snapshot()
 	await apply_agent_output(agent_output, "[少女]", request_serial)
 	if not is_request_serial_current(request_serial):
@@ -1551,6 +1560,12 @@ func apply_player_name_if_detected(candidate_name: String) -> void:
 	player_display_name = normalized_name
 
 
+func finalize_player_name_fallback() -> void:
+	player_name_known = true
+	player_name_hint_pending = false
+	player_display_name = "You"
+
+
 func build_player_name_extraction_source() -> String:
 	return "\n\n".join(girl_memory_entries)
 
@@ -1580,6 +1595,36 @@ func build_system_event_memory_entry(event) -> String:
 		"事件摘要: %s" % str(event.summary_text),
 		"事件载荷: %s" % JSON.stringify(event.payload)
 	])
+
+
+func build_system_event_memory_entry_from_snapshot(event_data: Dictionary) -> String:
+	return "\n".join([
+		"[系统事件]",
+		"事件摘要: %s" % str(event_data.get("summary_text", "")),
+		"事件载荷: %s" % JSON.stringify(event_data.get("payload", {}))
+	])
+
+
+func build_consumed_request_memory_entries(context, source_memory_entry: String) -> Array[String]:
+	var entries: Array[String] = []
+	for message in context.interrupted_player_messages:
+		var normalized_message := str(message).strip_edges()
+		if not normalized_message.is_empty():
+			entries.append(build_player_memory_entry(normalized_message))
+	for event_data in context.interrupted_system_events:
+		if typeof(event_data) == TYPE_DICTIONARY:
+			entries.append(build_system_event_memory_entry_from_snapshot(event_data))
+	var normalized_source := source_memory_entry.strip_edges()
+	if not normalized_source.is_empty():
+		entries.append(normalized_source)
+	return entries
+
+
+func commit_request_memory_entries(entries: Array[String]) -> void:
+	for entry_variant in entries:
+		var entry := str(entry_variant).strip_edges()
+		if not entry.is_empty():
+			append_girl_memory_input(entry)
 
 
 func _serialize_agent_commands(commands: Array) -> Array[Dictionary]:
