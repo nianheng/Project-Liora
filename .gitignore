@@ -8,6 +8,7 @@ export_presets.cfg
 *.local
 *.local.gd
 agent_runtime.local.json
+agent_runtime.local.deepseek.json
 secrets/
 
 # Local tooling / exports outside the game repo
@@ -18,3 +19,9 @@ test_*.zip
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# Frise(persoanlly) for downloading MCP by mistakes
+tools/downloads/
+tools/runtime-node/
+tools/godot-editor/
+AGENTS.md

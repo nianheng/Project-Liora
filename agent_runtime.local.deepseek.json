@@ -1,7 +1,0 @@
-{
-  "mode": "llm",
-  "api_base_url": "https://api.deepseek.com",
-  "api_key": "sk-8c22ccefa68e4ac4aeaa31a3ec1073d5",
-  "model_name": "deepseek-v4-pro",
-  "request_timeout_ms": 60000
-}
