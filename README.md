@@ -20,6 +20,8 @@ The public repository defaults to test mode instead of live LLM mode unless a lo
 1. Copy `agent_runtime.example.json` to `agent_runtime.local.json`.
 2. Fill in your real endpoint, key, and model.
 
+Recommended model: `gemini-3-flash-preview`.
+
 The game will automatically use `agent_runtime.local.json` if it exists and contains valid LLM settings.
 
 Do not commit `agent_runtime.local.json` or real API keys to a public repository.
