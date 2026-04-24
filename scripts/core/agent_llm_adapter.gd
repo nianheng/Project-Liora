@@ -165,7 +165,12 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		lines.insert(lines.size() - 1, "system events:")
 		lines.insert(lines.size() - 1, "\n".join(interrupted_event_lines))
 	if bool(context.should_ask_player_name_hint):
-		lines.insert(lines.size() - 1, "Extra intent hint: 你很想问问通讯器另一头的那个人的名字(如果他还没告诉你的话)，以及他是来自哪里的。请自然地把这份好奇融入回复里，不要显得生硬。")
+		lines.insert(lines.size() - 1, "Opening contact bias:")
+		lines.insert(lines.size() - 1, "在这之前，你已经对着无线电反复尝试过不同语言的呼叫，但始终没有得到真正的回应。")
+		lines.insert(lines.size() - 1, "现在这是第一次有人稳定地回复你。你会明显松一口气，也会变得更亮一点、更快一点、更想把这段联络抓住。")
+		lines.insert(lines.size() - 1, "这一阶段请优先表现“终于有人回应”的惊喜、试探和主动维持联络的意愿，不要一上来就完全进入平静的任务汇报模式。")
+		lines.insert(lines.size() - 1, "请先像终于抓住了一个活人一样说话，再自然过渡到解释现状。")
+		lines.insert(lines.size() - 1, "Extra intent hint: 你很在意通讯另一头终于出现的人，也会自然想确认对方是谁、叫什么、来自哪里，以及他为什么能听见你。请把这种松了一口气后的惊喜和好奇自然地融入回复里，不要像例行公事或生硬盘问。")
 	if not String(context.hunger_prompt_hint).strip_edges().is_empty():
 		lines.insert(4, "Hunger prompt hint: %s" % context.hunger_prompt_hint)
 	return "\n".join(lines)

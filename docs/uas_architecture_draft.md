@@ -267,11 +267,11 @@ Current testing version:
 ```json
 {
   "commands": [
-    {
-      "type": "move_to_location",
-      "target_location_id": "wind_tower",
-      "target_location_name": "风蚀观测塔"
-    }
+	{
+	  "type": "move_to_location",
+	  "target_location_id": "wind_tower",
+	  "target_location_name": "风蚀观测塔"
+	}
   ]
 }
 ```
@@ -287,13 +287,13 @@ Recommended command envelope:
 ```json
 {
   "agent_state_patch": {
-    "desired_location_ids": ["wind_tower"]
+	"desired_location_ids": ["wind_tower"]
   },
   "commands": [
-    {
-      "type": "move_to_location",
-      "target_location_id": "wind_tower"
-    }
+	{
+	  "type": "move_to_location",
+	  "target_location_id": "wind_tower"
+	}
   ]
 }
 ```
@@ -308,17 +308,17 @@ Recommended future format:
 ```json
 {
   "results": [
-    {
-      "type": "path_planned",
-      "target_location_id": "wind_tower",
-      "path": ["crash_canyon", "wind_tower"]
-    },
-    {
-      "type": "movement_started",
-      "from_location_id": "crash_canyon",
-      "to_location_id": "wind_tower",
-      "travel_time_seconds": 360
-    }
+	{
+	  "type": "path_planned",
+	  "target_location_id": "wind_tower",
+	  "path": ["crash_canyon", "wind_tower"]
+	},
+	{
+	  "type": "movement_started",
+	  "from_location_id": "crash_canyon",
+	  "to_location_id": "wind_tower",
+	  "travel_time_seconds": 360
+	}
   ]
 }
 ```
