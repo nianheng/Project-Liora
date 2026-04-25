@@ -3,7 +3,7 @@ class_name AgentLLMAdapter
 
 const AgentCommandScript = preload("res://scripts/core/types/agent_command.gd")
 const RuntimeConfig = preload("res://scripts/core/agent_runtime_config.gd")
-const PERSONA_PROMPT_PATH := "res://data/character/liora_persona_prompt.txt"
+const PERSONA_PROMPT_PATH := "res://data/character/liora_persona_prompt.json"
 const LLM_LOG_DIR := "user://llm_log"
 
 
@@ -63,22 +63,14 @@ func extract_player_name_async(host: Node, message: String) -> String:
 func build_system_prompt(context = null) -> String:
 	var interval_hint := _format_auto_explore_interval_hint(context)
 	var instruction_block := "\n".join([
-		"You are the stranded girl agent in a sci-fi mystery exploration game.",
 		"Reply naturally and in character.",
 		"You are chatting through a handheld communication terminal, not writing a monologue or report.",
 		"Your reply_text must feel like manually typed live chat messages.",
 		"Keep reply_text to 1 to 5 sentences total.",
-		"Each sentence must be on its own line, separated by newline characters.",
-		"Each sentence should usually stay within 100 Chinese characters.",
-		"For short acknowledgements, reactions, jokes, or quick answers, prefer 1 to 2 sentences.",
-		"For normal explanations or observations, prefer 2 to 3 sentences.",
-		"Only when you are clearly excited or need to explain something important, use 3 to 4 sentences.",
 		"Do not dump every detail in one reply. Say the most important part first and leave room for later turns.",
 		"Prefer short and medium-length sentences over long paragraphs.",
 		"Do not use bullet points or numbering inside reply_text.",
-		"Never claim world state changes unless the system already provided them.",
 		"Only emit commands from the allowed command schema.",
-		"If you decide to go somewhere, commands must be an array of objects, not strings.",
 		"You may use three command shapes only:",
 		"1. {\"type\": \"move_to_location\", \"target_location_id\": string, \"target_location_name\": string}",
 		"2. {\"type\": \"act\", \"target_id\": string, \"action\": string, \"params\": object}",
@@ -92,7 +84,6 @@ func build_system_prompt(context = null) -> String:
 		"For set_value, params is required and must contain both key and value.",
 		"Valid example: {\"type\": \"act\", \"target_id\": \"some_object_id\", \"action\": \"set_value\", \"params\": {\"key\": \"some_state_key\", \"value\": 1}}",
 		"If you are unsure, return an empty commands array.",
-		"The system owns all persistent state.",
 		"Return valid JSON only.",
 		"Schema:",
 		"{\"reply_text\": string, \"commands\": [{\"type\": string, ...}]}",
@@ -194,6 +185,7 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		lines.insert(lines.size() - 1, "现在这是第一次有人稳定地回复你。你会明显松一口气，也会变得更亮一点、更快一点、更想把这段联络抓住。")
 		lines.insert(lines.size() - 1, "这一阶段请优先表现“终于有人回应”的惊喜、试探和主动维持联络的意愿，不要一上来就完全进入平静的任务汇报模式。")
 		lines.insert(lines.size() - 1, "请先像终于抓住了一个活人一样说话，再自然过渡到解释现状。")
+		lines.insert(lines.size() - 1, "请自然提到你叫 Liora，并简短说明你刚从休眠舱醒来、飞船迫降在陌生星球上、目前独自困在飞船里。")
 		lines.insert(lines.size() - 1, "Extra intent hint: 你很在意通讯另一头终于出现的人，也会自然想确认对方是谁、叫什么、来自哪里，以及他为什么能听见你。请把这种松了一口气后的惊喜和好奇自然地融入回复里，不要像例行公事或生硬盘问。")
 	if not String(context.hunger_prompt_hint).strip_edges().is_empty():
 		lines.insert(4, "Hunger prompt hint: %s" % context.hunger_prompt_hint)
@@ -751,7 +743,13 @@ func _build_endpoint_url() -> String:
 func _load_persona_prompt() -> String:
 	if not FileAccess.file_exists(PERSONA_PROMPT_PATH):
 		return ""
-	return FileAccess.get_file_as_string(PERSONA_PROMPT_PATH).strip_edges()
+	var file := FileAccess.open(PERSONA_PROMPT_PATH, FileAccess.READ)
+	if file == null:
+		return ""
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return ""
+	return str((parsed as Dictionary).get("persona_prompt", "")).strip_edges()
 
 
 func _is_gemini_model() -> bool:

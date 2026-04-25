@@ -13,6 +13,7 @@ secrets/
 llm_log/
 
 # Local tooling / exports outside the game repo
+/build/
 godot-mcp/
 test/
 test_*.zip
