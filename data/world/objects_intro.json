@@ -82,7 +82,7 @@
 	"name": "飞船控制台",
 	"type": "device",
 	"holder": "bridge",
-	"description": "主控室内的飞船控制台，部分功能似乎还能响应。",
+	"description": "主控室内的飞船控制台，屏幕和指示灯全部熄灭，目前处于无法启动的状态。",
 	"actions": ["inspect", "use_item"],
 	"state": {}
   },
@@ -126,7 +126,7 @@
 	"name": "补给货架",
 	"type": "container",
 	"holder": "supply_room",
-	"description": "堆放着食物、饮水和零散物资的货架。",
+	"description": "用来堆放食物、饮水和零散物资的货架。",
 	"actions": ["inspect"],
 	"state": {}
   }

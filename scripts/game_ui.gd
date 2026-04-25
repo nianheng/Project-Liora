@@ -22,6 +22,8 @@ const MAP_NODE_SIZE := Vector2(76, 34)
 const MAP_GRID_STEP := Vector2(64, 44)
 const MAP_CANVAS_MARGIN := Vector2(32, 26)
 const MAP_NODE_MIN_GAP := Vector2(18, 14)
+const DESIGN_WINDOW_SIZE := Vector2i(2020, 1290)
+const MAX_SCREEN_COVERAGE := 0.95
 
 
 class MapGraphView:
@@ -106,8 +108,8 @@ var active_travel_connection: Dictionary = {}
 var planned_route: Array[String] = []
 var seconds_since_last_agent_exchange: int = 0
 var auto_explore_interval_seconds: int = 240
-var auto_explore_interval_min_seconds: int = 100
-var auto_explore_interval_max_seconds: int = 300
+var auto_explore_interval_min_seconds: int = 20
+var auto_explore_interval_max_seconds: int = 60
 var agent_request_in_flight := false
 var applying_agent_output := false
 var pending_system_events: Array = []
@@ -127,7 +129,12 @@ var map_node_layer: Control
 var map_node_buttons: Dictionary = {}
 var detail_object_list: ItemList
 var inventory_list: ItemList
-var comms_log: RichTextLabel
+var comms_scroll: ScrollContainer
+var comms_message_list: VBoxContainer
+var typing_indicator_timer: Timer
+var typing_indicator_row: Control
+var typing_indicator_body_label: Label
+var typing_indicator_dot_count := 0
 var input_box: LineEdit
 var pause_overlay: ColorRect
 var pause_label: Label
@@ -156,6 +163,7 @@ var map_lower_split: HSplitContainer
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	apply_startup_window_size()
 	world_graph.load_from_file("res://data/world/graph_demo.json")
 	world_objects.load_from_file("res://data/world/objects_intro.json")
 	current_agent = AgentFactory.create_agent()
@@ -163,9 +171,9 @@ func _ready() -> void:
 	build_ui()
 	resized.connect(_on_ui_resized)
 	setup_world_timer()
+	setup_typing_indicator_timer()
 	render_graph_data()
-	comms_log.clear()
-	comms_log_entry_count = 0
+	clear_comms_log()
 	call_deferred("play_first_contact_intro")
 	set_process_unhandled_input(true)
 	call_deferred("_apply_split_offsets")
@@ -173,6 +181,25 @@ func _ready() -> void:
 
 func _on_ui_resized() -> void:
 	call_deferred("_apply_split_offsets")
+
+
+func apply_startup_window_size() -> void:
+	var window := get_window()
+	if window == null:
+		return
+	var screen_index := DisplayServer.window_get_current_screen()
+	var usable_rect := DisplayServer.screen_get_usable_rect(screen_index)
+	var max_size := Vector2(usable_rect.size) * MAX_SCREEN_COVERAGE
+	var fit_scale := minf(
+		max_size.x / float(DESIGN_WINDOW_SIZE.x),
+		max_size.y / float(DESIGN_WINDOW_SIZE.y)
+	)
+	var target_size := Vector2i(
+		maxi(1, int(floor(float(DESIGN_WINDOW_SIZE.x) * fit_scale))),
+		maxi(1, int(floor(float(DESIGN_WINDOW_SIZE.y) * fit_scale)))
+	)
+	window.size = target_size
+	window.position = usable_rect.position + Vector2i((Vector2(usable_rect.size - target_size) * 0.5).floor())
 
 
 func _apply_split_offsets() -> void:
@@ -258,6 +285,15 @@ func setup_world_timer() -> void:
 	add_child(world_timer)
 
 
+func setup_typing_indicator_timer() -> void:
+	typing_indicator_timer = Timer.new()
+	typing_indicator_timer.wait_time = 0.50
+	typing_indicator_timer.one_shot = false
+	typing_indicator_timer.autostart = false
+	typing_indicator_timer.timeout.connect(_on_typing_indicator_tick)
+	add_child(typing_indicator_timer)
+
+
 func build_header() -> Control:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(0, 92)
@@ -277,14 +313,12 @@ func build_header() -> Control:
 	row.add_child(title_box)
 
 	var title := Label.new()
-	title.text = "Signal Archive // Planetfall"
+	title.text = "Project Liora // Planetfall"
 	title.add_theme_font_size_override("font_size", 30)
 	title_box.add_child(title)
 
 	objective_label = Label.new()
 	objective_label.text = "目标：建立稳定通讯，协助少女确认飞船现状。"
-	objective_label.modulate = TEXT_SOFT
-	title_box.add_child(objective_label)
 
 	var info_row := HBoxContainer.new()
 	info_row.alignment = BoxContainer.ALIGNMENT_END
@@ -332,15 +366,18 @@ func build_left_column() -> Control:
 
 	comms_column.add_child(make_section_title("通讯终端", ""))
 
-	comms_log = RichTextLabel.new()
-	comms_log.bbcode_enabled = true
-	comms_log.fit_content = false
-	comms_log.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	comms_log.scroll_following = true
-	comms_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	comms_log.custom_minimum_size = Vector2(0, 320)
-	comms_log.add_theme_font_size_override("normal_font_size", 23)
-	comms_column.add_child(comms_log)
+	comms_scroll = ScrollContainer.new()
+	comms_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	comms_scroll.custom_minimum_size = Vector2(0, 320)
+	comms_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	comms_column.add_child(comms_scroll)
+
+	comms_message_list = VBoxContainer.new()
+	comms_message_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	comms_message_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	comms_message_list.custom_minimum_size.x = 1
+	comms_message_list.add_theme_constant_override("separation", 14)
+	comms_scroll.add_child(comms_message_list)
 
 	var input_label := Label.new()
 	input_label.text = "发送消息"
@@ -1304,13 +1341,120 @@ func make_panel_style(fill: Color, radius: int, border: Color) -> StyleBoxFlat:
 func append_log(message: String, speaker_kind: String = "") -> void:
 	if not show_system_messages and message.begins_with("[系统]"):
 		return
-	if comms_log_entry_count > 0:
-		comms_log.add_text("\n\n")
-	comms_log.push_color(Color.html(_get_comms_message_color(message, speaker_kind)))
-	comms_log.add_text(message)
-	comms_log.pop()
+	var message_parts := _split_comms_message(message)
+	var body_text: String = str(message_parts.get("body", "")).strip_edges()
+	if body_text.is_empty():
+		return
+	var speaker_text: String = str(message_parts.get("speaker", "")).strip_edges()
+	var message_color := Color.html(_get_comms_message_color(message, speaker_kind))
+	var message_row := HBoxContainer.new()
+	message_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	message_row.add_theme_constant_override("separation", 8)
+
+	var speaker_label := Label.new()
+	speaker_label.text = speaker_text
+	speaker_label.custom_minimum_size = Vector2(92, 0)
+	speaker_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	speaker_label.add_theme_color_override("font_color", message_color)
+	speaker_label.add_theme_font_size_override("font_size", 23)
+	message_row.add_child(speaker_label)
+
+	var body_label := Label.new()
+	body_label.text = body_text
+	body_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	body_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body_label.add_theme_color_override("font_color", message_color)
+	body_label.add_theme_font_size_override("font_size", 23)
+	message_row.add_child(body_label)
+
+	comms_message_list.add_child(message_row)
 	comms_log_entry_count += 1
-	comms_log.scroll_to_line(max(comms_log.get_line_count() - 1, 0))
+	call_deferred("_scroll_comms_to_bottom")
+
+
+func clear_comms_log() -> void:
+	hide_typing_indicator()
+	if comms_message_list == null:
+		comms_log_entry_count = 0
+		return
+	for child in comms_message_list.get_children():
+		child.queue_free()
+	comms_log_entry_count = 0
+
+
+func _scroll_comms_to_bottom() -> void:
+	if comms_scroll == null:
+		return
+	await get_tree().process_frame
+	if comms_scroll == null:
+		return
+	var vertical_bar := comms_scroll.get_v_scroll_bar()
+	vertical_bar.value = vertical_bar.max_value
+
+
+func show_typing_indicator() -> void:
+	if comms_message_list == null:
+		return
+	if typing_indicator_row != null:
+		_scroll_comms_to_bottom()
+		return
+	typing_indicator_dot_count = 0
+	var message_color := Color.html(COMMS_GIRL_COLOR)
+	typing_indicator_row = HBoxContainer.new()
+	typing_indicator_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	typing_indicator_row.add_theme_constant_override("separation", 8)
+
+	var speaker_label := Label.new()
+	speaker_label.text = get_girl_speaker_prefix()
+	speaker_label.custom_minimum_size = Vector2(92, 0)
+	speaker_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	speaker_label.add_theme_color_override("font_color", message_color)
+	speaker_label.add_theme_font_size_override("font_size", 23)
+	typing_indicator_row.add_child(speaker_label)
+
+	typing_indicator_body_label = Label.new()
+	typing_indicator_body_label.text = "·"
+	typing_indicator_body_label.add_theme_color_override("font_color", message_color)
+	typing_indicator_body_label.add_theme_font_size_override("font_size", 23)
+	typing_indicator_row.add_child(typing_indicator_body_label)
+
+	comms_message_list.add_child(typing_indicator_row)
+	if typing_indicator_timer != null:
+		typing_indicator_timer.start()
+	_on_typing_indicator_tick()
+	call_deferred("_scroll_comms_to_bottom")
+
+
+func hide_typing_indicator() -> void:
+	if typing_indicator_timer != null:
+		typing_indicator_timer.stop()
+	if typing_indicator_row != null:
+		typing_indicator_row.queue_free()
+	typing_indicator_row = null
+	typing_indicator_body_label = null
+	typing_indicator_dot_count = 0
+
+
+func _on_typing_indicator_tick() -> void:
+	if typing_indicator_body_label == null:
+		return
+	typing_indicator_dot_count = typing_indicator_dot_count % 4 + 1
+	typing_indicator_body_label.text = "·".repeat(typing_indicator_dot_count)
+	call_deferred("_scroll_comms_to_bottom")
+
+
+func _split_comms_message(message: String) -> Dictionary:
+	var speaker := ""
+	var body := message
+	if message.begins_with("["):
+		var closing_index := message.find("]")
+		if closing_index > 1:
+			speaker = message.substr(0, closing_index + 1)
+			body = message.substr(closing_index + 1).strip_edges()
+	return {
+		"speaker": speaker,
+		"body": body
+	}
 
 
 func _get_comms_message_color(message: String, speaker_kind: String = "") -> String:
@@ -1419,6 +1563,7 @@ func clear_active_request_snapshot() -> void:
 func interrupt_active_agent_request() -> void:
 	if not agent_request_in_flight:
 		return
+	hide_typing_indicator()
 	for message in active_request_player_messages:
 		record_interrupted_player_message(message)
 	for event_data in active_request_system_events:
@@ -1638,6 +1783,7 @@ func display_girl_reply_lines(reply_text: String, trigger_label: String, request
 		var line: String = lines[index]
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			return
+		show_typing_indicator()
 		await wait_for_game_seconds(get_scripted_line_delay_seconds(line))
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			return
@@ -1645,6 +1791,7 @@ func display_girl_reply_lines(reply_text: String, trigger_label: String, request
 		var normalized_trigger_label := trigger_label
 		if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
 			normalized_trigger_label = get_girl_speaker_prefix()
+		hide_typing_indicator()
 		append_log("%s %s" % [normalized_trigger_label, line], "girl")
 		append_girl_memory_reply_line(line)
 
@@ -1791,8 +1938,10 @@ func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, re
 		return
 	applying_agent_output = true
 	if not str(agent_output.reply_text).is_empty():
+		show_typing_indicator()
 		await wait_for_game_seconds(reply_delay_seconds)
 		if request_serial != -1 and not is_request_serial_current(request_serial):
+			hide_typing_indicator()
 			applying_agent_output = false
 			return
 		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial)
