@@ -1,133 +1,133 @@
 [
   {
-    "instance_id": "item_biscuit_01",
-    "name": "压缩饼干",
-    "type": "food",
-    "holder": "supply_room",
-    "description": "找不到保质期的散装压缩饼干，虽然难吃但是能提供很多热量。",
-    "actions": ["inspect", "pick_up", "use"],
-    "state": {
-      "energy": 20
-    }
+	"instance_id": "item_biscuit_01",
+	"name": "压缩饼干",
+	"type": "food",
+	"holder": "supply_room",
+	"description": "找不到保质期的散装压缩饼干，虽然难吃但是能提供很多热量。",
+	"actions": ["inspect", "pick_up", "use"],
+	"state": {
+	  "energy": 20
+	}
   },
   {
-    "instance_id": "item_water_01",
-    "name": "饮用水包",
-    "type": "food",
-    "holder": "supply_room",
-    "description": "密封饮用水包，口感一般，但至少足够干净。",
-    "actions": ["inspect", "pick_up", "use"],
-    "state": {
-      "energy": 8
-    }
+	"instance_id": "item_water_01",
+	"name": "饮用水包",
+	"type": "food",
+	"holder": "supply_room",
+	"description": "密封饮用水包，口感一般，但至少足够干净。",
+	"actions": ["inspect", "pick_up", "use"],
+	"state": {
+	  "energy": 8
+	}
   },
   {
-    "instance_id": "item_battery_01",
-    "name": "高容量电池",
-    "type": "battery",
-    "holder": "supply_room",
-    "description": "用于紧急供电的高容量电池组，接口仍然完好。",
-    "actions": ["inspect", "pick_up"],
-    "state": {
-      "charge": 100
-    }
+	"instance_id": "item_battery_01",
+	"name": "高容量电池",
+	"type": "battery",
+	"holder": "supply_room",
+	"description": "用于紧急供电的高容量电池组，接口仍然完好。",
+	"actions": ["inspect", "pick_up"],
+	"state": {
+	  "charge": 100
+	}
   },
   {
-    "instance_id": "item_access_card_01",
-    "name": "系统访问卡",
-    "type": "item",
-    "holder": "bridge",
-    "description": "主控系统的访问卡，也许还能读取部分飞船记录。",
-    "actions": ["inspect", "pick_up", "use"],
-    "state": {}
+	"instance_id": "item_access_card_01",
+	"name": "系统访问卡",
+	"type": "item",
+	"holder": "bridge",
+	"description": "主控系统的访问卡，也许还能读取部分飞船记录。",
+	"actions": ["inspect", "pick_up", "use"],
+	"state": {}
   },
   {
-    "instance_id": "item_cryo_log_01",
-    "name": "休眠舱诊断记录",
-    "type": "item",
-    "holder": "lounge",
-    "description": "记录了休眠舱唤醒时间和故障信息的诊断记录。",
-    "actions": ["inspect", "pick_up", "use"],
-    "state": {}
+	"instance_id": "item_cryo_log_01",
+	"name": "休眠舱诊断记录",
+	"type": "item",
+	"holder": "lounge",
+	"description": "记录了休眠舱唤醒时间和故障信息的诊断记录。",
+	"actions": ["inspect", "pick_up", "use"],
+	"state": {}
   },
   {
-    "instance_id": "obj_cryopod_01",
-    "name": "休眠舱",
-    "type": "device",
-    "holder": "lounge",
-    "description": "少女醒来的休眠舱，舱盖已经打开。",
-    "actions": ["inspect"],
-    "state": {}
+	"instance_id": "obj_cryopod_01",
+	"name": "休眠舱",
+	"type": "device",
+	"holder": "lounge",
+	"description": "少女醒来的休眠舱，舱盖已经打开。",
+	"actions": ["inspect"],
+	"state": {}
   },
   {
-    "instance_id": "obj_porthole_01",
-    "name": "舷窗",
-    "type": "device",
-    "holder": "lounge",
-    "description": "可以看到飞船外部景色的舷窗。",
-    "actions": ["inspect"],
-    "state": {}
+	"instance_id": "obj_porthole_01",
+	"name": "舷窗",
+	"type": "device",
+	"holder": "lounge",
+	"description": "可以看到飞船外部景色的舷窗。",
+	"actions": ["inspect"],
+	"state": {}
   },
   {
-    "instance_id": "obj_radio_01",
-    "name": "无线电终端",
-    "type": "device",
-    "holder": "lounge",
-    "description": "少女用来接通通讯的无线电设备。",
-    "actions": ["inspect", "use"],
-    "state": {}
+	"instance_id": "obj_radio_01",
+	"name": "无线电终端",
+	"type": "device",
+	"holder": "lounge",
+	"description": "少女用来接通通讯的无线电设备。",
+	"actions": ["inspect", "use"],
+	"state": {}
   },
   {
-    "instance_id": "obj_bridge_console_01",
-    "name": "飞船控制台",
-    "type": "device",
-    "holder": "bridge",
-    "description": "主控室内的飞船控制台，部分功能似乎还能响应。",
-    "actions": ["inspect", "use_item"],
-    "state": {}
+	"instance_id": "obj_bridge_console_01",
+	"name": "飞船控制台",
+	"type": "device",
+	"holder": "bridge",
+	"description": "主控室内的飞船控制台，部分功能似乎还能响应。",
+	"actions": ["inspect", "use_item"],
+	"state": {}
   },
   {
-    "instance_id": "obj_airlock_panel_01",
-    "name": "舱门控制面板",
-    "type": "device",
-    "holder": "pressure_room",
-    "description": "负责控制外部舱门的面板，目前没有反应。",
-    "actions": ["inspect"],
-    "state": {
-      "powered": false
-    }
+	"instance_id": "obj_airlock_panel_01",
+	"name": "舱门控制面板",
+	"type": "device",
+	"holder": "pressure_room",
+	"description": "负责控制外部舱门的面板，目前没有反应。",
+	"actions": ["inspect"],
+	"state": {
+	  "powered": false
+	}
   },
   {
-    "instance_id": "obj_airlock_door_01",
-    "name": "舱门",
-    "type": "door",
-    "holder": "airlock_hatch",
-    "description": "通往飞船外部的舱门，目前处于锁定状态。",
-    "actions": ["inspect", "open"],
-    "state": {
-      "powered": false,
-      "opened": false
-    }
+	"instance_id": "obj_airlock_door_01",
+	"name": "舱门",
+	"type": "door",
+	"holder": "airlock_hatch",
+	"description": "通往飞船外部的舱门，目前处于锁定状态。",
+	"actions": ["inspect", "open"],
+	"state": {
+	  "powered": false,
+	  "opened": false
+	}
   },
   {
-    "instance_id": "obj_backup_power_01",
-    "name": "后备电力系统",
-    "type": "device",
-    "holder": "engine_room",
-    "description": "一套可为指定舱室提供临时供电的后备电力系统。",
-    "actions": ["inspect", "use_item", "set_value"],
-    "state": {
-      "stored_power": 0,
-      "power_target_index": 0
-    }
+	"instance_id": "obj_backup_power_01",
+	"name": "后备电力系统",
+	"type": "device",
+	"holder": "engine_room",
+	"description": "一套可为指定舱室提供临时供电的后备电力系统。",
+	"actions": ["inspect", "use_item", "set_value"],
+	"state": {
+	  "stored_power": 0,
+	  "power_target_index": 0
+	}
   },
   {
-    "instance_id": "obj_supply_shelf_01",
-    "name": "补给货架",
-    "type": "container",
-    "holder": "supply_room",
-    "description": "堆放着食物、饮水和零散物资的货架。",
-    "actions": ["inspect"],
-    "state": {}
+	"instance_id": "obj_supply_shelf_01",
+	"name": "补给货架",
+	"type": "container",
+	"holder": "supply_room",
+	"description": "堆放着食物、饮水和零散物资的货架。",
+	"actions": ["inspect"],
+	"state": {}
   }
 ]
