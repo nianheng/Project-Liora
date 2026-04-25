@@ -6,7 +6,8 @@ const AgentFactory = preload("res://scripts/core/agent_factory.gd")
 const AgentRuntimeConfig = preload("res://scripts/core/agent_runtime_config.gd")
 const AgentContextScript = preload("res://scripts/core/types/agent_context.gd")
 const AgentCommandScript = preload("res://scripts/core/types/agent_command.gd")
-const SystemEventScript = preload("res://scripts/core/types/system_event.gd")
+const SystemCommandExecutorScript = preload("res://scripts/core/system/system_command_executor.gd")
+const WorldRuntimeScript = preload("res://scripts/core/system/world_runtime.gd")
 
 const BG := Color("07111f")
 const PANEL := Color("10243a")
@@ -69,6 +70,8 @@ var paused := false
 var world_graph := WorldGraph.new()
 var world_objects := WorldObjects.new()
 var current_agent = null
+var system_command_executor := SystemCommandExecutorScript.new(self)
+var world_runtime := WorldRuntimeScript.new(self)
 var girl_favorability: int = 42
 var girl_satiety: int = 57
 var girl_ideology: int = 61
@@ -712,7 +715,7 @@ func render_header() -> void:
 	var current_location: Dictionary = world_graph.get_current_location()
 	time_label.text = format_clock(world_time_seconds)
 	status_label.text = "少女状态: %s" % agent_state
-	if is_traveling():
+	if world_runtime.is_traveling():
 		var from_name: String = str(world_graph.get_location(travel_origin_id).get("name", "--"))
 		var to_name: String = str(world_graph.get_location(travel_destination_id).get("name", "--"))
 		location_label.text = "当前位置: %s -> %s" % [from_name, to_name]
@@ -788,7 +791,7 @@ func render_map_list() -> void:
 				"to_name": str(neighbor.get("to_name", to_id))
 			})
 
-	if is_traveling():
+	if world_runtime.is_traveling():
 		if centers.has(travel_origin_id) and centers.has(travel_destination_id):
 			highlight_segments.append({
 				"from": centers[travel_origin_id],
@@ -1076,7 +1079,7 @@ func _clear_map_hover_summary() -> void:
 
 
 func render_location_detail() -> void:
-	if is_traveling():
+	if world_runtime.is_traveling():
 		var from_location: Dictionary = world_graph.get_location(travel_origin_id)
 		var to_location: Dictionary = world_graph.get_location(travel_destination_id)
 		detail_title_label.text = "路途中"
@@ -1102,7 +1105,7 @@ func render_clues() -> void:
 	if detail_object_list == null:
 		return
 	detail_object_list.clear()
-	if is_traveling():
+	if world_runtime.is_traveling():
 		detail_object_list.add_item("道路 | 起点 | %s" % world_graph.get_location(travel_origin_id).get("name", "--"))
 		detail_object_list.add_item("道路 | 终点 | %s" % world_graph.get_location(travel_destination_id).get("name", "--"))
 		detail_object_list.add_item("道路 | 方向 | %s" % active_travel_connection.get("direction_label", ""))
@@ -1326,41 +1329,6 @@ func format_duration(total_seconds: int) -> String:
 	return "%02d:%02d" % [minutes, seconds]
 
 
-func is_traveling() -> bool:
-	return agent_state == "MOVING" and not travel_destination_id.is_empty()
-
-
-func finish_travel() -> void:
-	world_graph.set_current_location(travel_destination_id)
-	selected_location_id = world_graph.current_location_id
-	agent_state = "EXPLORING"
-	append_log("[系统] 移动完成，少女已抵达 %s。" % world_graph.get_current_location().get("name", "未知地点"))
-	if not planned_route.is_empty():
-		planned_route.remove_at(0)
-	if planned_route.size() > 1:
-		var next_leg_id: String = planned_route[1]
-		append_log("[系统] 已规划后续路段，继续前往 %s。" % world_graph.get_location(next_leg_id).get("name", "未知地点"))
-		start_travel_leg(next_leg_id)
-		return
-	system_agent_desired_location_ids.erase(world_graph.current_location_id)
-	set_investigation_goal(world_graph.current_location_id)
-	travel_origin_id = ""
-	travel_destination_id = ""
-	travel_remaining_seconds = 0
-	active_travel_connection = {}
-	planned_route.clear()
-	render_graph_data()
-	var arrival_event := SystemEventScript.make(
-		SystemEventScript.TYPE_ARRIVED_AT_LOCATION,
-		"已抵达 %s，现在可以开始观察周围环境。" % str(world_graph.get_current_location().get("name", world_graph.current_location_id)),
-		{
-			"location_id": world_graph.current_location_id,
-			"location_name": str(world_graph.get_current_location().get("name", world_graph.current_location_id))
-		}
-	)
-	dispatch_system_event(arrival_event)
-
-
 func toggle_pause() -> void:
 	paused = not paused
 	get_tree().paused = paused
@@ -1461,7 +1429,7 @@ func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYE
 	context.allowed_command_types.append(AgentCommandScript.TYPE_ACT)
 	context.allowed_command_types.append(AgentCommandScript.TYPE_SET_AUTO_EXPLORE_INTERVAL)
 
-	if is_traveling():
+	if world_runtime.is_traveling():
 		context.current_location_id = travel_origin_id
 		context.current_location_name = str(world_graph.get_location(travel_origin_id).get("name", travel_origin_id))
 		context.active_travel_route = {
@@ -1767,7 +1735,7 @@ func apply_agent_output(agent_output, trigger_label: String, request_serial: int
 		applying_agent_output = false
 		return
 	if request_serial == -1 or is_request_serial_current(request_serial):
-		execute_command_set(agent_output.commands)
+		system_command_executor.execute_command_set(agent_output.commands)
 		append_girl_memory_reply_commands(agent_output.commands)
 	var desired_names: Array[String] = get_system_desired_location_names()
 	if not desired_names.is_empty():
@@ -1790,7 +1758,7 @@ func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, re
 		applying_agent_output = false
 		return
 	if request_serial == -1 or is_request_serial_current(request_serial):
-		execute_command_set(agent_output.commands)
+		system_command_executor.execute_command_set(agent_output.commands)
 		append_girl_memory_reply_commands(agent_output.commands)
 	var desired_names: Array[String] = get_system_desired_location_names()
 	if not desired_names.is_empty():
@@ -1831,439 +1799,6 @@ func set_investigation_goal(location_id: String) -> void:
 	system_agent_short_term_goal = "在 %s 调查周围并寻找新的线索" % location_name
 
 
-func execute_command_set(commands: Array[AgentCommand]) -> Array[SystemResult]:
-	var results: Array[SystemResult] = []
-	for command in commands:
-		match command.type:
-			AgentCommandScript.TYPE_MOVE_TO_LOCATION:
-				results.append(execute_move_command(command))
-			AgentCommandScript.TYPE_ACT:
-				results.append(execute_act_command(command))
-			AgentCommandScript.TYPE_SET_AUTO_EXPLORE_INTERVAL:
-				results.append(execute_set_auto_explore_interval_command(command))
-	return results
-
-
-func execute_set_auto_explore_interval_command(command: AgentCommand) -> SystemResult:
-	var requested_seconds: int = command.seconds
-	var clamped_seconds: int = clampi(
-		requested_seconds,
-		auto_explore_interval_min_seconds,
-		auto_explore_interval_max_seconds
-	)
-	var previous_seconds: int = auto_explore_interval_seconds
-	auto_explore_interval_seconds = clamped_seconds
-	append_log("[系统] 少女将自动探索间隔调整为 %d 秒。" % clamped_seconds)
-	var result := SystemResult.make(SystemResult.TYPE_AUTO_EXPLORE_INTERVAL_SET, true, "已更新自动探索间隔")
-	result.payload = {
-		"seconds_before": previous_seconds,
-		"seconds_after": clamped_seconds
-	}
-	return result
-
-
-func execute_act_command(command: AgentCommand) -> SystemResult:
-	if is_traveling():
-		append_log("[系统] 少女正在移动中，当前不能执行对象交互。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "少女正在移动中")
-
-	var target_id: String = command.target_id
-	if target_id.is_empty() or not world_objects.has_object(target_id):
-		append_log("[系统] act 指令缺少有效的目标对象。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "act 指令缺少有效的目标对象")
-
-	if not world_objects.supports_action(target_id, command.action):
-		append_log("[系统] 对象 %s 不支持动作 %s。" % [target_id, command.action])
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "目标对象不支持该动作")
-
-	match command.action:
-		AgentCommandScript.ACTION_INSPECT:
-			return execute_inspect_action(target_id)
-		AgentCommandScript.ACTION_PICK_UP:
-			return execute_pick_up_action(target_id)
-		AgentCommandScript.ACTION_USE:
-			return execute_use_action(target_id)
-		AgentCommandScript.ACTION_USE_ITEM:
-			return execute_use_item_action(target_id, command.params)
-		AgentCommandScript.ACTION_SET_VALUE:
-			return execute_set_value_action(target_id, command.params)
-		AgentCommandScript.ACTION_OPEN:
-			return execute_open_action(target_id)
-		_:
-			append_log("[系统] 未知 act 动作：%s。" % command.action)
-			return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "未知 act 动作")
-
-
-func execute_inspect_action(target_id: String) -> SystemResult:
-	var object_data: Dictionary = world_objects.get_object(target_id)
-	if not can_access_object(target_id):
-		append_log("[系统] 当前无法查看 %s，因为它不在少女可直接接触的范围内。" % str(object_data.get("name", target_id)))
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "当前无法查看该对象")
-
-	var object_name: String = str(object_data.get("name", target_id))
-	var summary: String = format_object_state_summary(object_data)
-	var inspection_description: String = build_inspection_description(target_id, object_data)
-	append_log("[系统] 少女检查了 %s。" % object_name)
-	dispatch_system_event(SystemEventScript.make(
-		SystemEventScript.TYPE_INSPECTION_RESULT,
-		"少女刚刚检查了 %s。" % object_name,
-		{
-			"object_id": target_id,
-			"object_name": object_name,
-			"inspection_description": inspection_description,
-			"visible_object": world_objects.get_visible_object(target_id),
-			"state_summary": summary
-		}
-	))
-	var result := SystemResult.make(SystemResult.TYPE_OBJECT_INSPECTED, true, "已检查对象")
-	result.target_object_id = target_id
-	result.action_name = AgentCommandScript.ACTION_INSPECT
-	result.payload = world_objects.get_visible_object(target_id)
-	return result
-
-
-func build_inspection_description(target_id: String, object_data: Dictionary) -> String:
-	var object_name: String = str(object_data.get("name", target_id))
-	var summary: String = format_object_state_summary(object_data)
-	if target_id == "obj_backup_power_01":
-		var power_state: Dictionary = object_data.get("state", {})
-		var stored_power: int = int(power_state.get("stored_power", 0))
-		var target_index: int = int(power_state.get("power_target_index", 0))
-		return "我检查了一下 %s。这套后备电力系统在充满电之后，可以给某一个指定舱室的所有设备额外供电。面板上 0 号到 5 号按钮整齐地排成一排，但按钮上的舱室名称标签已经模糊不清了。现在亮着的是第 %d 号按钮上的指示灯，当前储能是 %d / 100。" % [
-			object_name,
-			target_index,
-			stored_power
-		]
-	if summary.is_empty():
-		return "我检查了一下 %s，目前没有看到新的数值变化。" % object_name
-	return "我检查了一下 %s。当前可见状态：%s。" % [object_name, summary]
-
-
-func execute_pick_up_action(target_id: String) -> SystemResult:
-	var object_data: Dictionary = world_objects.get_object(target_id)
-	var object_name: String = str(object_data.get("name", target_id))
-	var current_holder: String = world_objects.get_holder(target_id)
-	if current_holder != world_graph.current_location_id:
-		append_log("[系统] 当前无法拾取 %s，因为它不在少女所在地点。" % object_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "对象不在当前地点")
-
-	if not world_objects.move_object(target_id, "girl"):
-		append_log("[系统] 拾取 %s 失败，系统未能更新其归属。" % object_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "拾取失败")
-
-	append_log("[系统] 少女拾取了 %s，已加入她的物品栏。" % object_name)
-	render_graph_data()
-	var result := SystemResult.make(SystemResult.TYPE_ITEM_PICKED_UP, true, "已拾取物品")
-	result.target_object_id = target_id
-	result.action_name = AgentCommandScript.ACTION_PICK_UP
-	result.payload = world_objects.get_visible_object(target_id)
-	return result
-
-
-func execute_use_action(target_id: String) -> SystemResult:
-	var object_data: Dictionary = world_objects.get_object(target_id)
-	var object_name: String = str(object_data.get("name", target_id))
-	if world_objects.get_holder(target_id) != "girl":
-		append_log("[系统] 当前无法使用 %s，因为它不在少女的物品栏中。" % object_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "对象不在少女物品栏中")
-
-	var object_type: String = str(object_data.get("type", ""))
-	if object_type != "food":
-		append_log("[系统] 已识别使用 %s 的请求，但当前只实现了 food 类型物品的直接使用。" % object_name)
-		var not_implemented := SystemResult.make(SystemResult.TYPE_ACTION_NOT_IMPLEMENTED, false, "当前只实现了食物的直接使用")
-		not_implemented.target_object_id = target_id
-		not_implemented.action_name = AgentCommandScript.ACTION_USE
-		return not_implemented
-
-	var state: Dictionary = object_data.get("state", {})
-	var energy: int = int(state.get("energy", 0))
-	var previous_satiety: int = girl_satiety
-	girl_satiety = clampi(girl_satiety + energy, 0, 100)
-	world_objects.remove_object(target_id)
-	render_graph_data()
-
-	append_log("[系统] 少女食用了 %s，饱食度从 %d 提升到 %d。" % [object_name, previous_satiety, girl_satiety])
-
-	var result := SystemResult.make(SystemResult.TYPE_ITEM_USED, true, "已使用物品")
-	result.target_object_id = target_id
-	result.action_name = AgentCommandScript.ACTION_USE
-	result.payload = {
-		"consumed_item_name": object_name,
-		"satiety_before": previous_satiety,
-		"satiety_after": girl_satiety,
-		"energy": energy
-	}
-	return result
-
-
-func execute_use_item_action(target_id: String, params: Dictionary) -> SystemResult:
-	var target_object: Dictionary = world_objects.get_object(target_id)
-	var target_name: String = str(target_object.get("name", target_id))
-	if not can_access_object(target_id):
-		append_log("[系统] 当前无法对 %s 使用物品，因为它不在少女可直接操作的范围内。" % target_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "当前无法对该对象使用物品")
-
-	var item_id: String = str(params.get("item_id", ""))
-	if item_id.is_empty() or not world_objects.has_object(item_id):
-		append_log("[系统] use_item 指令缺少有效的 item_id。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "use_item 指令缺少有效的 item_id")
-
-	if world_objects.get_holder(item_id) != "girl":
-		append_log("[系统] 当前无法使用该物品，因为它不在少女的物品栏中。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "物品不在少女物品栏中")
-
-	var item_object: Dictionary = world_objects.get_object(item_id)
-	var item_name: String = str(item_object.get("name", item_id))
-	var item_type: String = str(item_object.get("type", ""))
-	var target_type: String = str(target_object.get("type", ""))
-	if item_type != "battery" or target_type != "device":
-		append_log("[系统] 已识别将 %s 用于 %s 的请求，但当前只实现了 battery -> device 的 use_item 逻辑。" % [item_name, target_name])
-		var not_implemented := SystemResult.make(SystemResult.TYPE_ACTION_NOT_IMPLEMENTED, false, "当前只实现了 battery -> device 的 use_item 逻辑")
-		not_implemented.target_object_id = target_id
-		not_implemented.action_name = AgentCommandScript.ACTION_USE_ITEM
-		return not_implemented
-
-	var target_state: Dictionary = target_object.get("state", {})
-	if not target_state.has("stored_power"):
-		append_log("[系统] %s 当前没有可充能的 stored_power 状态。" % target_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "目标对象没有可充能状态")
-
-	var item_state: Dictionary = item_object.get("state", {})
-	var charge: int = int(item_state.get("charge", 0))
-	if charge <= 0:
-		append_log("[系统] %s 当前没有可用电量。" % item_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "物品没有可用电量")
-
-	var previous_power: int = int(target_state.get("stored_power", 0))
-	var new_power: int = clampi(previous_power + charge, 0, 100)
-	target_state["stored_power"] = new_power
-	world_objects.set_object_state(target_id, target_state)
-	world_objects.remove_object(item_id)
-	render_graph_data()
-
-	append_log("[系统] 少女将 %s 接入 %s，储能从 %d 提升到 %d。" % [item_name, target_name, previous_power, new_power])
-	if target_id == "obj_backup_power_01" and new_power >= 100:
-		append_log("[系统] 后备电力系统已充满，现在可以继续切换供电目标。")
-
-	var result := SystemResult.make(SystemResult.TYPE_ITEM_APPLIED, true, "已将物品作用于目标对象")
-	result.target_object_id = target_id
-	result.action_name = AgentCommandScript.ACTION_USE_ITEM
-	result.payload = {
-		"item_id": item_id,
-		"item_name": item_name,
-		"target_name": target_name,
-		"stored_power_before": previous_power,
-		"stored_power_after": new_power
-	}
-	return result
-
-
-func execute_set_value_action(target_id: String, params: Dictionary) -> SystemResult:
-	var target_object: Dictionary = world_objects.get_object(target_id)
-	var target_name: String = str(target_object.get("name", target_id))
-	if not can_access_object(target_id):
-		append_log("[系统] 当前无法设置 %s，因为它不在少女可直接操作的范围内。" % target_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "当前无法设置该对象")
-
-	var key: String = str(params.get("key", ""))
-	if key.is_empty() or not params.has("value"):
-		append_log("[系统] set_value 指令缺少 key 或 value。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "set_value 指令缺少 key 或 value")
-
-	var target_type: String = str(target_object.get("type", ""))
-	if target_type != "device":
-		append_log("[系统] 当前只允许对 device 类型对象执行 set_value。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "当前只允许对设备设置数值")
-
-	var target_state: Dictionary = target_object.get("state", {})
-	if not target_state.has(key):
-		append_log("[系统] %s 当前没有可设置的状态键 %s。" % [target_name, key])
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "目标对象没有该状态键")
-
-	if target_id == "obj_backup_power_01":
-		return execute_backup_power_set_value(target_id, target_name, key, params.get("value"))
-
-	append_log("[系统] 已识别对 %s 执行 set_value，但当前只实现了后备电力系统的切换逻辑。" % target_name)
-	var not_implemented := SystemResult.make(SystemResult.TYPE_ACTION_NOT_IMPLEMENTED, false, "当前只实现了后备电力系统的 set_value 逻辑")
-	not_implemented.target_object_id = target_id
-	not_implemented.action_name = AgentCommandScript.ACTION_SET_VALUE
-	return not_implemented
-
-
-func execute_backup_power_set_value(target_id: String, target_name: String, key: String, raw_value: Variant) -> SystemResult:
-	if key != "power_target_index":
-		append_log("[系统] 后备电力系统当前只允许设置 power_target_index。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "后备电力系统当前只允许设置 power_target_index")
-
-	var target_state: Dictionary = world_objects.get_object(target_id).get("state", {})
-	var stored_power: int = int(target_state.get("stored_power", 0))
-	if stored_power < 100:
-		append_log("[系统] 后备电力系统储能不足，当前为 %d，必须达到 100 才能切换供电目标。" % stored_power)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "后备电力系统储能不足")
-
-	var value: int = int(raw_value)
-	if value < 0 or value > 5:
-		append_log("[系统] power_target_index 超出允许范围，当前只接受 0 到 5。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "power_target_index 超出允许范围")
-
-	var previous_value: int = int(target_state.get("power_target_index", 0))
-	target_state["power_target_index"] = value
-	world_objects.set_object_state(target_id, target_state)
-	update_airlock_power_state(value == 4)
-	render_graph_data()
-
-	append_log("[系统] 少女将 %s 的供电目标从 %d 切换为 %d。" % [target_name, previous_value, value])
-	if value == 4:
-		append_log("[系统] 舱门系统已恢复供电。")
-	else:
-		append_log("[系统] 当前供电目标不是舱门系统，舱门仍未恢复供电。")
-
-	var result := SystemResult.make(SystemResult.TYPE_VALUE_SET, true, "已更新设备状态值")
-	result.target_object_id = target_id
-	result.action_name = AgentCommandScript.ACTION_SET_VALUE
-	result.payload = {
-		"key": key,
-		"value_before": previous_value,
-		"value_after": value,
-		"airlock_powered": value == 4
-	}
-	return result
-
-
-func update_airlock_power_state(powered: bool) -> void:
-	if powered:
-		if not unlocked_requirements.has("airlock_power"):
-			unlocked_requirements.append("airlock_power")
-	else:
-		unlocked_requirements.erase("airlock_power")
-
-	var airlock_door: Dictionary = world_objects.get_object("obj_airlock_door_01")
-	if not airlock_door.is_empty():
-		var airlock_door_state: Dictionary = airlock_door.get("state", {})
-		airlock_door_state["powered"] = powered
-		world_objects.set_object_state("obj_airlock_door_01", airlock_door_state)
-
-	var airlock_panel: Dictionary = world_objects.get_object("obj_airlock_panel_01")
-	if not airlock_panel.is_empty():
-		var airlock_panel_state: Dictionary = airlock_panel.get("state", {})
-		airlock_panel_state["powered"] = powered
-		world_objects.set_object_state("obj_airlock_panel_01", airlock_panel_state)
-
-
-func execute_open_action(target_id: String) -> SystemResult:
-	var target_object: Dictionary = world_objects.get_object(target_id)
-	var target_name: String = str(target_object.get("name", target_id))
-	if not can_access_object(target_id):
-		append_log("[系统] 当前无法开启 %s，因为它不在少女可直接操作的范围内。" % target_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "当前无法开启该对象")
-
-	var target_type: String = str(target_object.get("type", ""))
-	if target_type != "door":
-		append_log("[系统] 当前只允许对 door 类型对象执行 open。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "当前只允许对门执行开启操作")
-
-	var target_state: Dictionary = target_object.get("state", {})
-	var is_powered: bool = bool(target_state.get("powered", false))
-	var is_opened: bool = bool(target_state.get("opened", false))
-	if is_opened:
-		append_log("[系统] %s 已经处于开启状态。" % target_name)
-		var already_opened := SystemResult.make(SystemResult.TYPE_OBJECT_OPENED, true, "对象已经处于开启状态")
-		already_opened.target_object_id = target_id
-		already_opened.action_name = AgentCommandScript.ACTION_OPEN
-		already_opened.payload = world_objects.get_visible_object(target_id)
-		return already_opened
-
-	if not is_powered:
-		append_log("[系统] %s 当前没有供电，无法开启。" % target_name)
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "目标对象当前没有供电")
-
-	target_state["opened"] = true
-	world_objects.set_object_state(target_id, target_state)
-	render_graph_data()
-
-	append_log("[系统] %s 已成功开启。" % target_name)
-	if target_id == "obj_airlock_door_01":
-		objective_label.text = "目标：穿过舱门离开飞船，开始对外部环境进行探索。"
-		system_agent_short_term_goal = "穿过已经开启的舱门，确认飞船外部环境是否安全。"
-		system_recent_dialogue_summary = "少女成功开启了舱门，正在准备离开飞船。"
-
-	var result := SystemResult.make(SystemResult.TYPE_OBJECT_OPENED, true, "对象已开启")
-	result.target_object_id = target_id
-	result.action_name = AgentCommandScript.ACTION_OPEN
-	result.payload = world_objects.get_visible_object(target_id)
-	return result
-
-
-func can_access_object(target_id: String) -> bool:
-	var holder_id: String = world_objects.get_holder(target_id)
-	return holder_id == world_graph.current_location_id or holder_id == "girl"
-
-
-func execute_move_command(command: AgentCommand) -> SystemResult:
-	if is_traveling():
-		append_log("[系统] 少女已经在路上了，这条移动指令暂时不能执行。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "少女已经在路上了")
-
-	var target_location_id: String = command.target_location_id
-	var target_location_name: String = command.target_location_name
-	if target_location_id.is_empty():
-		append_log("[系统] 移动指令缺少目标地点。")
-		return SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "移动指令缺少目标地点")
-
-	system_agent_desired_location_ids.erase(target_location_id)
-	system_agent_desired_location_ids.append(target_location_id)
-	system_agent_short_term_goal = "前往 %s 并调查是否存在新的线索" % target_location_name
-
-	var path: Array[String] = world_graph.find_path(world_graph.current_location_id, target_location_id, unlocked_requirements)
-	if path.is_empty():
-		append_log("[系统] 已收到前往 %s 的请求，但当前没有满足条件的可行路径。" % target_location_name)
-		var rejected := SystemResult.make(SystemResult.TYPE_COMMAND_REJECTED, false, "当前找不到满足条件的路径")
-		rejected.target_location_id = target_location_id
-		return rejected
-
-	if path.size() == 1:
-		append_log("[系统] 少女已经位于 %s。" % target_location_name)
-		system_agent_desired_location_ids.erase(target_location_id)
-		set_investigation_goal(target_location_id)
-		var already := SystemResult.make(SystemResult.TYPE_ALREADY_AT_TARGET, true, "已经位于目标地点")
-		already.target_location_id = target_location_id
-		return already
-
-	planned_route = path.duplicate()
-	selected_location_id = target_location_id
-	var next_leg_id: String = path[1]
-	var next_connection: Dictionary = world_graph.get_connection(world_graph.current_location_id, next_leg_id)
-	var named_path: Array[String] = []
-	for location_id in path:
-		named_path.append(str(world_graph.get_location(location_id).get("name", location_id)))
-	append_log("[系统] 已为 %s 规划路径：%s。" % [target_location_name, " -> ".join(named_path)])
-	append_log("[系统] 第一段路线方向：%s，目的地：%s。" % [
-		next_connection.get("direction_label", "未知"),
-		world_graph.get_location(next_leg_id).get("name", next_leg_id)
-	])
-	start_travel_leg(next_leg_id)
-	var result := SystemResult.make(SystemResult.TYPE_MOVEMENT_STARTED, true, "开始沿规划路径移动")
-	result.target_location_id = target_location_id
-	result.path = path.duplicate()
-	result.from_location_id = world_graph.current_location_id
-	result.to_location_id = next_leg_id
-	result.direction_label = str(next_connection.get("direction_label", ""))
-	result.travel_time_seconds = world_graph.get_travel_time(world_graph.current_location_id, next_leg_id) * 60
-	return result
-
-
-func start_travel_leg(next_location_id: String) -> void:
-	var origin_id: String = world_graph.current_location_id
-	var destination: Dictionary = world_graph.get_location(next_location_id)
-	var travel_time: int = world_graph.get_travel_time(origin_id, next_location_id)
-	travel_origin_id = origin_id
-	travel_destination_id = next_location_id
-	travel_remaining_seconds = travel_time * 60
-	active_travel_connection = world_graph.get_connection(origin_id, next_location_id)
-	agent_state = "MOVING"
-	render_graph_data()
-
-
 func _on_send_pressed() -> void:
 	var message := input_box.text.strip_edges()
 	if message.is_empty():
@@ -2298,67 +1833,14 @@ func _on_quick_action(action_text: String) -> void:
 	append_log("[系统] 已记录快捷动作，后续可以在这里接入专门的动作解析器。")
 
 
-func advance_world_time(delta_seconds: int, emit_log: bool = false) -> void:
-	world_time_seconds += delta_seconds
-	time_label.text = format_clock(world_time_seconds)
-	satiety_decay_accumulator_seconds += delta_seconds
-	var satiety_changed := false
-	while satiety_decay_accumulator_seconds >= 60:
-		satiety_decay_accumulator_seconds -= 60
-		var next_satiety: int = maxi(girl_satiety - 1, 0)
-		if next_satiety == girl_satiety:
-			continue
-		girl_satiety = next_satiety
-		satiety_changed = true
-	if satiety_changed:
-		render_character_status()
-	if is_traveling():
-		travel_remaining_seconds -= delta_seconds
-		seconds_since_last_agent_exchange = 0
-		render_location_detail()
-		render_clues()
-		if travel_remaining_seconds <= 0:
-			finish_travel()
-		elif emit_log:
-			append_log("[系统] 时间推进 %d 秒，少女仍在前往 %s 的路上，还需要 %s。" % [
-				delta_seconds,
-				world_graph.get_location(travel_destination_id).get("name", "未知地点"),
-				format_duration(travel_remaining_seconds)
-			])
-			render_graph_data()
-	else:
-		if agent_request_in_flight:
-			return
-		if agent_state == "EXPLORING":
-			seconds_since_last_agent_exchange += delta_seconds
-			if seconds_since_last_agent_exchange >= auto_explore_interval_seconds:
-				var idle_event := SystemEventScript.make(
-					SystemEventScript.TYPE_EXPLORATION_IDLE,
-					"少女已自主探索一段时间，准备继续推进当前行动。",
-					{
-						"elapsed_seconds": seconds_since_last_agent_exchange,
-						"location_id": world_graph.current_location_id,
-						"location_name": str(world_graph.get_current_location().get("name", world_graph.current_location_id))
-					}
-				)
-				dispatch_system_event(idle_event)
-		elif agent_state != "MOVING":
-			seconds_since_last_agent_exchange = 0
-		if not emit_log:
-			return
-		if emit_log:
-			pass
-		append_log("[系统] 时间推进 %d 秒，少女继续保持自主探索。" % delta_seconds)
-
-
 func _on_world_tick() -> void:
 	if paused:
 		return
-	advance_world_time(1)
+	world_runtime.advance_world_time(1)
 
 
 func _on_debug_advance_time() -> void:
-	advance_world_time(10, true)
+	world_runtime.advance_world_time(10, true)
 
 
 func _on_map_location_selected(index: int) -> void:
@@ -2371,13 +1853,13 @@ func _on_map_location_selected(index: int) -> void:
 
 
 func _on_move_pressed() -> void:
-	if is_traveling():
+	if world_runtime.is_traveling():
 		append_log("[系统] 少女已经在路上了，请等当前移动结束后再下达新的移动指令。")
 		return
 	if selected_location_id == world_graph.current_location_id:
 		append_log("[系统] 少女已经在这个地点，无需再次移动。")
 		return
-	execute_move_command(AgentCommandScript.move_to_location(
+	system_command_executor.execute_move_command(AgentCommandScript.move_to_location(
 		selected_location_id,
 		str(world_graph.get_location(selected_location_id).get("name", selected_location_id))
 	))

@@ -79,7 +79,7 @@ func build_system_prompt(context = null) -> String:
 		"Never claim world state changes unless the system already provided them.",
 		"Only emit commands from the allowed command schema.",
 		"If you decide to go somewhere, commands must be an array of objects, not strings.",
-		"You may use two command shapes only:",
+		"You may use three command shapes only:",
 		"1. {\"type\": \"move_to_location\", \"target_location_id\": string, \"target_location_name\": string}",
 		"2. {\"type\": \"act\", \"target_id\": string, \"action\": string, \"params\": object}",
 		"3. {\"type\": \"set_auto_explore_interval\", \"seconds\": integer}",
