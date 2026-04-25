@@ -94,6 +94,8 @@ const PLAYER_NAME_EXTRACTION_MAX_ATTEMPTS := 3
 var interrupted_player_messages: Array[String] = []
 var interrupted_system_events: Array[Dictionary] = []
 var agent_request_serial: int = 0
+var intro_sequence_serial: int = 0
+var intro_playing := false
 var active_request_player_messages: Array[String] = []
 var active_request_system_events: Array[Dictionary] = []
 var selected_location_id := ""
@@ -1234,10 +1236,16 @@ func play_first_contact_intro() -> void:
 	if prologue_intro_played:
 		return
 	prologue_intro_played = true
+	intro_sequence_serial += 1
+	var current_intro_serial := intro_sequence_serial
+	intro_playing = true
 	objective_label.text = "目标：回应无线电呼叫，先与少女建立稳定通讯。"
 	system_agent_short_term_goal = "先确认无线电另一端是否有人稳定回应。"
 	system_recent_dialogue_summary = "少女正在通过无线电反复尝试呼叫未知对象，希望确认通讯另一端是否真的有人存在。"
 	await wait_for_game_seconds(1.0)
+	if current_intro_serial != intro_sequence_serial:
+		stop_intro_sequence_after_interrupt()
+		return
 	var opening_lines := [
 		"Hello?",
 		"Allô ?",
@@ -1250,8 +1258,17 @@ func play_first_contact_intro() -> void:
 	]
 	for index in range(opening_lines.size()):
 		var line: String = opening_lines[index]
+		if current_intro_serial != intro_sequence_serial:
+			stop_intro_sequence_after_interrupt()
+			return
+		show_typing_indicator()
 		await wait_for_game_seconds(get_scripted_line_delay_seconds(line))
+		if current_intro_serial != intro_sequence_serial:
+			stop_intro_sequence_after_interrupt()
+			return
+		hide_typing_indicator()
 		append_scripted_girl_line(line)
+	intro_playing = false
 	render_graph_data()
 
 
@@ -1433,6 +1450,19 @@ func hide_typing_indicator() -> void:
 	typing_indicator_row = null
 	typing_indicator_body_label = null
 	typing_indicator_dot_count = 0
+
+
+func interrupt_intro_sequence() -> void:
+	if not intro_playing:
+		return
+	intro_sequence_serial += 1
+	intro_playing = false
+	hide_typing_indicator()
+
+
+func stop_intro_sequence_after_interrupt() -> void:
+	intro_playing = false
+	hide_typing_indicator()
 
 
 func _on_typing_indicator_tick() -> void:
@@ -1994,6 +2024,7 @@ func _on_send_pressed() -> void:
 	var message := input_box.text.strip_edges()
 	if message.is_empty():
 		return
+	interrupt_intro_sequence()
 	append_log("%s %s" % [get_player_speaker_prefix(), message], "player")
 	if not prologue_contact_confirmed:
 		prologue_contact_confirmed = true
