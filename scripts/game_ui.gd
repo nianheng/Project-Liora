@@ -103,6 +103,8 @@ var active_travel_connection: Dictionary = {}
 var planned_route: Array[String] = []
 var seconds_since_last_agent_exchange: int = 0
 var auto_explore_interval_seconds: int = 240
+var auto_explore_interval_min_seconds: int = 100
+var auto_explore_interval_max_seconds: int = 300
 var agent_request_in_flight := false
 var applying_agent_output := false
 var pending_system_events: Array = []
@@ -126,6 +128,8 @@ var comms_log: RichTextLabel
 var input_box: LineEdit
 var pause_overlay: ColorRect
 var pause_label: Label
+var auto_explore_min_spin: SpinBox
+var auto_explore_max_spin: SpinBox
 var detail_title_label: Label
 var detail_description_label: Label
 var detail_meta_label: Label
@@ -143,6 +147,7 @@ var map_lower_split: HSplitContainer
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	world_graph.load_from_file("res://data/world/graph_demo.json")
 	world_objects.load_from_file("res://data/world/objects_intro.json")
 	current_agent = AgentFactory.create_agent()
@@ -291,7 +296,7 @@ func build_header() -> Control:
 	info_row.add_child(system_log_toggle_button)
 
 	var pause_button := Button.new()
-	pause_button.text = "暂停"
+	pause_button.text = "⚙ 设置"
 	pause_button.pressed.connect(toggle_pause)
 	info_row.add_child(pause_button)
 
@@ -557,6 +562,7 @@ func build_media_panel() -> Control:
 
 func build_pause_overlay() -> ColorRect:
 	var overlay := ColorRect.new()
+	overlay.process_mode = Node.PROCESS_MODE_WHEN_PAUSED
 	overlay.color = Color(0.01, 0.03, 0.06, 0.86)
 	overlay.layout_mode = 1
 	overlay.anchor_right = 1.0
@@ -585,15 +591,17 @@ func build_pause_overlay() -> ColorRect:
 	margin.add_child(column)
 
 	var title := Label.new()
-	title.text = "暂停中"
+	title.text = "设置"
 	title.add_theme_font_size_override("font_size", 28)
 	column.add_child(title)
 
 	pause_label = Label.new()
-	pause_label.text = "这里后续可以放设置、存档、任务日志和系统说明。"
+	pause_label.text = "游戏时间已停止。这里后续可以放设置、存档、任务日志和系统说明。"
 	pause_label.modulate = TEXT_SOFT
 	pause_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(pause_label)
+
+	column.add_child(build_auto_explore_interval_settings())
 
 	for text in ["继续", "保存占位", "设置占位"]:
 		var button := Button.new()
@@ -604,6 +612,91 @@ func build_pause_overlay() -> ColorRect:
 		column.add_child(button)
 
 	return overlay
+
+
+func build_auto_explore_interval_settings() -> Control:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", make_panel_style(PANEL_MUTED, 10, PANEL_ALT))
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 8)
+	margin.add_child(column)
+
+	var title := Label.new()
+	title.text = "少女等待时间范围"
+	title.modulate = TEXT
+	column.add_child(title)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	column.add_child(row)
+
+	row.add_child(make_settings_label("最短"))
+	auto_explore_min_spin = make_interval_spin_box(auto_explore_interval_min_seconds)
+	auto_explore_min_spin.value_changed.connect(_on_auto_explore_min_changed)
+	row.add_child(auto_explore_min_spin)
+
+	row.add_child(make_settings_label("最长"))
+	auto_explore_max_spin = make_interval_spin_box(auto_explore_interval_max_seconds)
+	auto_explore_max_spin.value_changed.connect(_on_auto_explore_max_changed)
+	row.add_child(auto_explore_max_spin)
+
+	var unit_label := Label.new()
+	unit_label.text = "秒"
+	unit_label.modulate = TEXT_SOFT
+	row.add_child(unit_label)
+
+	return panel
+
+
+func make_settings_label(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.modulate = TEXT_SOFT
+	return label
+
+
+func make_interval_spin_box(value: int) -> SpinBox:
+	var spin := SpinBox.new()
+	spin.min_value = 10
+	spin.max_value = 1800
+	spin.step = 10
+	spin.value = value
+	spin.custom_minimum_size = Vector2(96, 36)
+	return spin
+
+
+func _on_auto_explore_min_changed(value: float) -> void:
+	auto_explore_interval_min_seconds = int(value)
+	if auto_explore_interval_min_seconds > auto_explore_interval_max_seconds:
+		auto_explore_interval_max_seconds = auto_explore_interval_min_seconds
+		if auto_explore_max_spin != null:
+			auto_explore_max_spin.set_value_no_signal(auto_explore_interval_max_seconds)
+	auto_explore_interval_seconds = clampi(
+		auto_explore_interval_seconds,
+		auto_explore_interval_min_seconds,
+		auto_explore_interval_max_seconds
+	)
+
+
+func _on_auto_explore_max_changed(value: float) -> void:
+	auto_explore_interval_max_seconds = int(value)
+	if auto_explore_interval_max_seconds < auto_explore_interval_min_seconds:
+		auto_explore_interval_min_seconds = auto_explore_interval_max_seconds
+		if auto_explore_min_spin != null:
+			auto_explore_min_spin.set_value_no_signal(auto_explore_interval_min_seconds)
+	auto_explore_interval_seconds = clampi(
+		auto_explore_interval_seconds,
+		auto_explore_interval_min_seconds,
+		auto_explore_interval_max_seconds
+	)
 
 
 func render_graph_data() -> void:
@@ -1098,7 +1191,7 @@ func play_first_contact_intro() -> void:
 	objective_label.text = "目标：回应无线电呼叫，先与少女建立稳定通讯。"
 	system_agent_short_term_goal = "先确认无线电另一端是否有人稳定回应。"
 	system_recent_dialogue_summary = "少女正在通过无线电反复尝试呼叫未知对象，希望确认通讯另一端是否真的有人存在。"
-	await get_tree().create_timer(1.0).timeout
+	await wait_for_game_seconds(1.0)
 	var opening_lines := [
 		"Hello?",
 		"Allô ?",
@@ -1111,7 +1204,7 @@ func play_first_contact_intro() -> void:
 	]
 	for index in range(opening_lines.size()):
 		var line: String = opening_lines[index]
-		await get_tree().create_timer(get_scripted_line_delay_seconds(line)).timeout
+		await wait_for_game_seconds(get_scripted_line_delay_seconds(line))
 		append_scripted_girl_line(line)
 	render_graph_data()
 
@@ -1271,6 +1364,8 @@ func finish_travel() -> void:
 func toggle_pause() -> void:
 	paused = not paused
 	get_tree().paused = paused
+	if world_timer != null:
+		world_timer.paused = paused
 	pause_overlay.visible = paused
 
 
@@ -1347,6 +1442,8 @@ func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYE
 	}
 	context.hunger_prompt_hint = get_hunger_prompt_hint()
 	context.auto_explore_interval_seconds = auto_explore_interval_seconds
+	context.auto_explore_interval_min_seconds = auto_explore_interval_min_seconds
+	context.auto_explore_interval_max_seconds = auto_explore_interval_max_seconds
 	context.short_term_goal = system_agent_short_term_goal
 	context.recent_dialogue_summary = system_recent_dialogue_summary
 	context.desired_location_ids = system_agent_desired_location_ids.duplicate()
@@ -1533,6 +1630,12 @@ func split_reply_text_into_lines(reply_text: String) -> Array[String]:
 	return lines
 
 
+func wait_for_game_seconds(seconds: float) -> void:
+	if seconds <= 0.0:
+		return
+	await get_tree().create_timer(seconds, false).timeout
+
+
 func display_girl_reply_lines(reply_text: String, trigger_label: String, request_serial: int = -1) -> void:
 	var lines := split_reply_text_into_lines(reply_text)
 	if lines.is_empty():
@@ -1541,7 +1644,7 @@ func display_girl_reply_lines(reply_text: String, trigger_label: String, request
 		var line: String = lines[index]
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			return
-		await get_tree().create_timer(get_scripted_line_delay_seconds(line)).timeout
+		await wait_for_game_seconds(get_scripted_line_delay_seconds(line))
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			return
 		update_girl_display_identity_from_text(line)
@@ -1678,7 +1781,7 @@ func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, re
 		return
 	applying_agent_output = true
 	if not str(agent_output.reply_text).is_empty():
-		await get_tree().create_timer(reply_delay_seconds).timeout
+		await wait_for_game_seconds(reply_delay_seconds)
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			applying_agent_output = false
 			return
@@ -1743,7 +1846,11 @@ func execute_command_set(commands: Array[AgentCommand]) -> Array[SystemResult]:
 
 func execute_set_auto_explore_interval_command(command: AgentCommand) -> SystemResult:
 	var requested_seconds: int = command.seconds
-	var clamped_seconds: int = clampi(requested_seconds, 100, 300) # Agent可以自己更改的交互频率范围
+	var clamped_seconds: int = clampi(
+		requested_seconds,
+		auto_explore_interval_min_seconds,
+		auto_explore_interval_max_seconds
+	)
 	var previous_seconds: int = auto_explore_interval_seconds
 	auto_explore_interval_seconds = clamped_seconds
 	append_log("[系统] 少女将自动探索间隔调整为 %d 秒。" % clamped_seconds)

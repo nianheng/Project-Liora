@@ -16,6 +16,8 @@ var agent_state: String = ""
 var character_status: Dictionary = {}
 var hunger_prompt_hint: String = ""
 var auto_explore_interval_seconds: int = 30
+var auto_explore_interval_min_seconds: int = 100
+var auto_explore_interval_max_seconds: int = 300
 
 var short_term_goal: String = ""
 var recent_dialogue_summary: String = ""

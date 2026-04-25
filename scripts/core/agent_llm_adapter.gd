@@ -60,7 +60,8 @@ func extract_player_name_async(host: Node, message: String) -> String:
 	return _parse_name_extraction_response(response.get("body", {}))
 
 
-func build_system_prompt() -> String:
+func build_system_prompt(context = null) -> String:
+	var interval_hint := _format_auto_explore_interval_hint(context)
 	var instruction_block := "\n".join([
 		"You are the stranded girl agent in a sci-fi mystery exploration game.",
 		"Reply naturally and in character.",
@@ -87,8 +88,7 @@ func build_system_prompt() -> String:
 		"For act commands, choose only actions that appear in the target object's actions list.",
 		"Use inspect to check an object, pick_up to take an item, use to directly use a carried item such as food, use_item to apply a carried item to a target object, set_value to change an allowed target value, and open to open a door or hatch.",
 		"Use set_auto_explore_interval only when you want to change how soon the next automatic exploration update should happen.",
-		"set_auto_explore_interval.seconds must be an integer between 100 and 300.",
-		"Use a larger value (220-300) if you want to wait longer for the player to respond. Use a smaller value (100-160) if you want to continue exploring by yourself sooner.",
+		interval_hint,
 		"For set_value, params is required and must contain both key and value.",
 		"Valid example: {\"type\": \"act\", \"target_id\": \"some_object_id\", \"action\": \"set_value\", \"params\": {\"key\": \"some_state_key\", \"value\": 1}}",
 		"If you are unsure, return an empty commands array.",
@@ -110,6 +110,29 @@ func build_system_prompt() -> String:
 		"系统行为约束：",
 		instruction_block
 	])
+
+
+func _format_auto_explore_interval_hint(context = null) -> String:
+	var min_seconds := 100
+	var max_seconds := 300
+	if context != null:
+		min_seconds = int(context.auto_explore_interval_min_seconds)
+		max_seconds = int(context.auto_explore_interval_max_seconds)
+	if min_seconds > max_seconds:
+		var swap := min_seconds
+		min_seconds = max_seconds
+		max_seconds = swap
+	var span: int = max(0, max_seconds - min_seconds)
+	var shorter_max: int = min(max_seconds, min_seconds + int(round(float(span) * 0.35)))
+	var longer_min: int = max(min_seconds, max_seconds - int(round(float(span) * 0.35)))
+	return "set_auto_explore_interval.seconds must be an integer between %d and %d. Use a larger value (%d-%d) if you want to wait longer for the player to respond. Use a smaller value (%d-%d) if you want to continue exploring by yourself sooner." % [
+		min_seconds,
+		max_seconds,
+		longer_min,
+		max_seconds,
+		min_seconds,
+		shorter_max
+	]
 
 
 func build_player_prompt(message: String, context, world_graph: WorldGraph) -> String:
@@ -156,7 +179,7 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
 		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
 		"set_value reminder: always include params.key and params.value. Never omit key.",
-		"set_auto_explore_interval reminder: seconds must be an integer between 100 and 300."
+		_format_auto_explore_interval_hint(context)
 	]
 	if not context.interrupted_player_messages.is_empty():
 		lines.insert(lines.size() - 1, "Player message:")
@@ -178,11 +201,11 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 
 
 func build_request_payload_for_player_message(message: String, context, world_graph: WorldGraph) -> Dictionary:
-	return _build_request_payload_from_prompt(build_player_prompt(message, context, world_graph))
+	return _build_request_payload_from_prompt(build_player_prompt(message, context, world_graph), build_system_prompt(context))
 
 
 func build_request_payload_for_system_event(event, context, world_graph: WorldGraph) -> Dictionary:
-	return _build_request_payload_from_prompt(build_system_event_prompt(event, context, world_graph))
+	return _build_request_payload_from_prompt(build_system_event_prompt(event, context, world_graph), build_system_prompt(context))
 
 
 func _build_name_extraction_payload(message: String) -> Dictionary:
@@ -251,7 +274,7 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
 		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
 		"set_value reminder: always include params.key and params.value. Never omit key.",
-		"set_auto_explore_interval reminder: seconds must be an integer between 100 and 300.",
+		_format_auto_explore_interval_hint(context),
 		"System event type: %s" % str(event.event_type),
 		"System event summary: %s" % str(event.summary_text),
 		"System event payload: %s" % JSON.stringify(event.payload)
