@@ -22,6 +22,8 @@ const MAP_NODE_SIZE := Vector2(76, 34)
 const MAP_GRID_STEP := Vector2(64, 44)
 const MAP_CANVAS_MARGIN := Vector2(32, 26)
 const MAP_NODE_MIN_GAP := Vector2(18, 14)
+const DESIGN_WINDOW_SIZE := Vector2i(2020, 1290)
+const MAX_SCREEN_COVERAGE := 0.95
 
 
 class MapGraphView:
@@ -129,6 +131,10 @@ var detail_object_list: ItemList
 var inventory_list: ItemList
 var comms_scroll: ScrollContainer
 var comms_message_list: VBoxContainer
+var typing_indicator_timer: Timer
+var typing_indicator_row: Control
+var typing_indicator_body_label: Label
+var typing_indicator_dot_count := 0
 var input_box: LineEdit
 var pause_overlay: ColorRect
 var pause_label: Label
@@ -157,6 +163,7 @@ var map_lower_split: HSplitContainer
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	apply_startup_window_size()
 	world_graph.load_from_file("res://data/world/graph_demo.json")
 	world_objects.load_from_file("res://data/world/objects_intro.json")
 	current_agent = AgentFactory.create_agent()
@@ -164,6 +171,7 @@ func _ready() -> void:
 	build_ui()
 	resized.connect(_on_ui_resized)
 	setup_world_timer()
+	setup_typing_indicator_timer()
 	render_graph_data()
 	clear_comms_log()
 	call_deferred("play_first_contact_intro")
@@ -173,6 +181,25 @@ func _ready() -> void:
 
 func _on_ui_resized() -> void:
 	call_deferred("_apply_split_offsets")
+
+
+func apply_startup_window_size() -> void:
+	var window := get_window()
+	if window == null:
+		return
+	var screen_index := DisplayServer.window_get_current_screen()
+	var usable_rect := DisplayServer.screen_get_usable_rect(screen_index)
+	var max_size := Vector2(usable_rect.size) * MAX_SCREEN_COVERAGE
+	var fit_scale := minf(
+		max_size.x / float(DESIGN_WINDOW_SIZE.x),
+		max_size.y / float(DESIGN_WINDOW_SIZE.y)
+	)
+	var target_size := Vector2i(
+		maxi(1, int(floor(float(DESIGN_WINDOW_SIZE.x) * fit_scale))),
+		maxi(1, int(floor(float(DESIGN_WINDOW_SIZE.y) * fit_scale)))
+	)
+	window.size = target_size
+	window.position = usable_rect.position + Vector2i((Vector2(usable_rect.size - target_size) * 0.5).floor())
 
 
 func _apply_split_offsets() -> void:
@@ -256,6 +283,15 @@ func setup_world_timer() -> void:
 	world_timer.autostart = true
 	world_timer.timeout.connect(_on_world_tick)
 	add_child(world_timer)
+
+
+func setup_typing_indicator_timer() -> void:
+	typing_indicator_timer = Timer.new()
+	typing_indicator_timer.wait_time = 0.50
+	typing_indicator_timer.one_shot = false
+	typing_indicator_timer.autostart = false
+	typing_indicator_timer.timeout.connect(_on_typing_indicator_tick)
+	add_child(typing_indicator_timer)
 
 
 func build_header() -> Control:
@@ -1337,6 +1373,7 @@ func append_log(message: String, speaker_kind: String = "") -> void:
 
 
 func clear_comms_log() -> void:
+	hide_typing_indicator()
 	if comms_message_list == null:
 		comms_log_entry_count = 0
 		return
@@ -1353,6 +1390,57 @@ func _scroll_comms_to_bottom() -> void:
 		return
 	var vertical_bar := comms_scroll.get_v_scroll_bar()
 	vertical_bar.value = vertical_bar.max_value
+
+
+func show_typing_indicator() -> void:
+	if comms_message_list == null:
+		return
+	if typing_indicator_row != null:
+		_scroll_comms_to_bottom()
+		return
+	typing_indicator_dot_count = 0
+	var message_color := Color.html(COMMS_GIRL_COLOR)
+	typing_indicator_row = HBoxContainer.new()
+	typing_indicator_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	typing_indicator_row.add_theme_constant_override("separation", 8)
+
+	var speaker_label := Label.new()
+	speaker_label.text = get_girl_speaker_prefix()
+	speaker_label.custom_minimum_size = Vector2(92, 0)
+	speaker_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	speaker_label.add_theme_color_override("font_color", message_color)
+	speaker_label.add_theme_font_size_override("font_size", 23)
+	typing_indicator_row.add_child(speaker_label)
+
+	typing_indicator_body_label = Label.new()
+	typing_indicator_body_label.text = "·"
+	typing_indicator_body_label.add_theme_color_override("font_color", message_color)
+	typing_indicator_body_label.add_theme_font_size_override("font_size", 23)
+	typing_indicator_row.add_child(typing_indicator_body_label)
+
+	comms_message_list.add_child(typing_indicator_row)
+	if typing_indicator_timer != null:
+		typing_indicator_timer.start()
+	_on_typing_indicator_tick()
+	call_deferred("_scroll_comms_to_bottom")
+
+
+func hide_typing_indicator() -> void:
+	if typing_indicator_timer != null:
+		typing_indicator_timer.stop()
+	if typing_indicator_row != null:
+		typing_indicator_row.queue_free()
+	typing_indicator_row = null
+	typing_indicator_body_label = null
+	typing_indicator_dot_count = 0
+
+
+func _on_typing_indicator_tick() -> void:
+	if typing_indicator_body_label == null:
+		return
+	typing_indicator_dot_count = typing_indicator_dot_count % 4 + 1
+	typing_indicator_body_label.text = "·".repeat(typing_indicator_dot_count)
+	call_deferred("_scroll_comms_to_bottom")
 
 
 func _split_comms_message(message: String) -> Dictionary:
@@ -1475,6 +1563,7 @@ func clear_active_request_snapshot() -> void:
 func interrupt_active_agent_request() -> void:
 	if not agent_request_in_flight:
 		return
+	hide_typing_indicator()
 	for message in active_request_player_messages:
 		record_interrupted_player_message(message)
 	for event_data in active_request_system_events:
@@ -1694,6 +1783,7 @@ func display_girl_reply_lines(reply_text: String, trigger_label: String, request
 		var line: String = lines[index]
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			return
+		show_typing_indicator()
 		await wait_for_game_seconds(get_scripted_line_delay_seconds(line))
 		if request_serial != -1 and not is_request_serial_current(request_serial):
 			return
@@ -1701,6 +1791,7 @@ func display_girl_reply_lines(reply_text: String, trigger_label: String, request
 		var normalized_trigger_label := trigger_label
 		if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
 			normalized_trigger_label = get_girl_speaker_prefix()
+		hide_typing_indicator()
 		append_log("%s %s" % [normalized_trigger_label, line], "girl")
 		append_girl_memory_reply_line(line)
 
@@ -1847,8 +1938,10 @@ func apply_agent_output_with_reply_delay(agent_output, trigger_label: String, re
 		return
 	applying_agent_output = true
 	if not str(agent_output.reply_text).is_empty():
+		show_typing_indicator()
 		await wait_for_game_seconds(reply_delay_seconds)
 		if request_serial != -1 and not is_request_serial_current(request_serial):
+			hide_typing_indicator()
 			applying_agent_output = false
 			return
 		await display_girl_reply_lines(str(agent_output.reply_text), trigger_label, request_serial)
