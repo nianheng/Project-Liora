@@ -10,6 +10,7 @@ export_presets.cfg
 agent_runtime.local.json
 agent_runtime.local.deepseek.json
 secrets/
+llm_log/
 
 # Local tooling / exports outside the game repo
 godot-mcp/

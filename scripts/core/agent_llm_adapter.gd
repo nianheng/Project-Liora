@@ -4,6 +4,7 @@ class_name AgentLLMAdapter
 const AgentCommandScript = preload("res://scripts/core/types/agent_command.gd")
 const RuntimeConfig = preload("res://scripts/core/agent_runtime_config.gd")
 const PERSONA_PROMPT_PATH := "res://data/character/liora_persona_prompt.txt"
+const LLM_LOG_DIR := "res://llm_log"
 
 
 func get_adapter_name() -> String:
@@ -16,7 +17,7 @@ func is_async() -> bool:
 
 func process_player_message(message: String, context, world_graph: WorldGraph):
 	var payload: Dictionary = build_request_payload_for_player_message(message, context, world_graph)
-	var response: Dictionary = _perform_request(payload)
+	var response: Dictionary = _perform_logged_request(payload, "player_message")
 	if not bool(response.get("ok", false)):
 		push_warning("LLM request failed: %s" % JSON.stringify(response))
 		return _build_fallback_output(message, world_graph)
@@ -25,7 +26,7 @@ func process_player_message(message: String, context, world_graph: WorldGraph):
 
 func process_system_event(event, context, world_graph: WorldGraph):
 	var payload: Dictionary = build_request_payload_for_system_event(event, context, world_graph)
-	var response: Dictionary = _perform_request(payload)
+	var response: Dictionary = _perform_logged_request(payload, "system_event")
 	if not bool(response.get("ok", false)):
 		push_warning("LLM system event request failed: %s" % JSON.stringify(response))
 		return _build_system_event_fallback_output(event, context, world_graph)
@@ -34,7 +35,7 @@ func process_system_event(event, context, world_graph: WorldGraph):
 
 func process_player_message_async(host: Node, message: String, context, world_graph: WorldGraph):
 	var payload: Dictionary = build_request_payload_for_player_message(message, context, world_graph)
-	var response: Dictionary = await _perform_request_async(host, payload)
+	var response: Dictionary = await _perform_logged_request_async(host, payload, "player_message")
 	if not bool(response.get("ok", false)):
 		push_warning("LLM request failed: %s" % JSON.stringify(response))
 		return _build_fallback_output(message, world_graph)
@@ -43,7 +44,7 @@ func process_player_message_async(host: Node, message: String, context, world_gr
 
 func process_system_event_async(host: Node, event, context, world_graph: WorldGraph):
 	var payload: Dictionary = build_request_payload_for_system_event(event, context, world_graph)
-	var response: Dictionary = await _perform_request_async(host, payload)
+	var response: Dictionary = await _perform_logged_request_async(host, payload, "system_event")
 	if not bool(response.get("ok", false)):
 		push_warning("LLM system event request failed: %s" % JSON.stringify(response))
 		return _build_system_event_fallback_output(event, context, world_graph)
@@ -52,7 +53,7 @@ func process_system_event_async(host: Node, event, context, world_graph: WorldGr
 
 func extract_player_name_async(host: Node, message: String) -> String:
 	var payload: Dictionary = _build_name_extraction_payload(message)
-	var response: Dictionary = await _perform_request_async(host, payload)
+	var response: Dictionary = await _perform_logged_request_async(host, payload, "player_name_extraction")
 	if not bool(response.get("ok", false)):
 		push_warning("Player name extraction failed: %s" % JSON.stringify(response))
 		return ""
@@ -439,6 +440,13 @@ func _perform_request(payload: Dictionary) -> Dictionary:
 	}
 
 
+func _perform_logged_request(payload: Dictionary, request_kind: String) -> Dictionary:
+	var started_at := _get_llm_log_timestamp()
+	var response: Dictionary = _perform_request(payload)
+	_write_llm_log(request_kind, started_at, payload, response)
+	return response
+
+
 func _perform_request_async(host: Node, payload: Dictionary) -> Dictionary:
 	var request := HTTPRequest.new()
 	request.timeout = maxi(1, RuntimeConfig.get_request_timeout_ms() / 1000)
@@ -476,6 +484,76 @@ func _perform_request_async(host: Node, payload: Dictionary) -> Dictionary:
 		"body": parsed,
 		"raw_text": response_text
 	}
+
+
+func _perform_logged_request_async(host: Node, payload: Dictionary, request_kind: String) -> Dictionary:
+	var started_at := _get_llm_log_timestamp()
+	var response: Dictionary = await _perform_request_async(host, payload)
+	_write_llm_log(request_kind, started_at, payload, response)
+	return response
+
+
+func _write_llm_log(request_kind: String, started_at: Dictionary, payload: Dictionary, response: Dictionary) -> void:
+	var log_dir := ProjectSettings.globalize_path(LLM_LOG_DIR)
+	var dir_error := DirAccess.make_dir_recursive_absolute(log_dir)
+	if dir_error != OK:
+		push_warning("Could not create LLM log directory: %s" % log_dir)
+		return
+
+	var ended_at := _get_llm_log_timestamp()
+	var log_data := {
+		"request_kind": request_kind,
+		"started_at": started_at.get("iso", ""),
+		"ended_at": ended_at.get("iso", ""),
+		"endpoint": _build_endpoint_url(),
+		"model": RuntimeConfig.get_model_name(),
+		"request": payload.duplicate(true),
+		"response": response.duplicate(true)
+	}
+
+	var filename := "%s_%s_%s.json" % [
+		str(started_at.get("filename", "")),
+		_sanitize_log_filename_part(request_kind),
+		str(Time.get_ticks_usec())
+	]
+	var file_path := log_dir.path_join(filename)
+	var file := FileAccess.open(file_path, FileAccess.WRITE)
+	if file == null:
+		push_warning("Could not write LLM log file: %s" % file_path)
+		return
+	file.store_string(JSON.stringify(log_data, "\t"))
+	file.close()
+
+
+func _get_llm_log_timestamp() -> Dictionary:
+	var now := Time.get_datetime_dict_from_system()
+	var filename := "%04d%02d%02d_%02d%02d%02d" % [
+		int(now.get("year", 0)),
+		int(now.get("month", 0)),
+		int(now.get("day", 0)),
+		int(now.get("hour", 0)),
+		int(now.get("minute", 0)),
+		int(now.get("second", 0))
+	]
+	var iso := "%04d-%02d-%02dT%02d:%02d:%02d" % [
+		int(now.get("year", 0)),
+		int(now.get("month", 0)),
+		int(now.get("day", 0)),
+		int(now.get("hour", 0)),
+		int(now.get("minute", 0)),
+		int(now.get("second", 0))
+	]
+	return {
+		"filename": filename,
+		"iso": iso
+	}
+
+
+func _sanitize_log_filename_part(value: String) -> String:
+	var result := value.strip_edges().to_lower()
+	for forbidden in [" ", "/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
+		result = result.replace(forbidden, "_")
+	return result if not result.is_empty() else "request"
 
 
 func _wait_for_http_status(client: HTTPClient, accepted_statuses: Array[int]) -> bool:
