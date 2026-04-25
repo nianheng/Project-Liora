@@ -4,7 +4,7 @@ class_name AgentLLMAdapter
 const AgentCommandScript = preload("res://scripts/core/types/agent_command.gd")
 const RuntimeConfig = preload("res://scripts/core/agent_runtime_config.gd")
 const PERSONA_PROMPT_PATH := "res://data/character/liora_persona_prompt.txt"
-const LLM_LOG_DIR := "res://llm_log"
+const LLM_LOG_DIR := "user://llm_log"
 
 
 func get_adapter_name() -> String:
@@ -87,8 +87,8 @@ func build_system_prompt() -> String:
 		"For act commands, choose only actions that appear in the target object's actions list.",
 		"Use inspect to check an object, pick_up to take an item, use to directly use a carried item such as food, use_item to apply a carried item to a target object, set_value to change an allowed target value, and open to open a door or hatch.",
 		"Use set_auto_explore_interval only when you want to change how soon the next automatic exploration update should happen.",
-		"set_auto_explore_interval.seconds must be an integer between 10 and 60.",
-		"Use a larger value (40-60) if you want to wait longer for the player to respond. Use a smaller value(10-20) if you want to continue exploring by yourself sooner.",
+		"set_auto_explore_interval.seconds must be an integer between 100 and 300.",
+		"Use a larger value (220-300) if you want to wait longer for the player to respond. Use a smaller value (100-160) if you want to continue exploring by yourself sooner.",
 		"For set_value, params is required and must contain both key and value.",
 		"Valid example: {\"type\": \"act\", \"target_id\": \"some_object_id\", \"action\": \"set_value\", \"params\": {\"key\": \"some_state_key\", \"value\": 1}}",
 		"If you are unsure, return an empty commands array.",
@@ -156,7 +156,7 @@ func build_player_prompt(message: String, context, world_graph: WorldGraph) -> S
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
 		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
 		"set_value reminder: always include params.key and params.value. Never omit key.",
-		"set_auto_explore_interval reminder: seconds must be an integer between 10 and 60."
+		"set_auto_explore_interval reminder: seconds must be an integer between 100 and 300."
 	]
 	if not context.interrupted_player_messages.is_empty():
 		lines.insert(lines.size() - 1, "Player message:")
@@ -251,7 +251,7 @@ func build_system_event_prompt(event, context, world_graph: WorldGraph) -> Strin
 		"Allowed commands: %s" % ", ".join(context.allowed_command_types),
 		"Act command reminder: use target_id from current_location_objects or inventory_objects, and only use actions listed on that target.",
 		"set_value reminder: always include params.key and params.value. Never omit key.",
-		"set_auto_explore_interval reminder: seconds must be an integer between 10 and 60.",
+		"set_auto_explore_interval reminder: seconds must be an integer between 100 and 300.",
 		"System event type: %s" % str(event.event_type),
 		"System event summary: %s" % str(event.summary_text),
 		"System event payload: %s" % JSON.stringify(event.payload)

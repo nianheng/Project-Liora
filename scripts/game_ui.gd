@@ -1743,7 +1743,7 @@ func execute_command_set(commands: Array[AgentCommand]) -> Array[SystemResult]:
 
 func execute_set_auto_explore_interval_command(command: AgentCommand) -> SystemResult:
 	var requested_seconds: int = command.seconds
-	var clamped_seconds: int = clampi(requested_seconds, 10, 60)
+	var clamped_seconds: int = clampi(requested_seconds, 100, 300) # Agent可以自己更改的交互频率范围
 	var previous_seconds: int = auto_explore_interval_seconds
 	auto_explore_interval_seconds = clamped_seconds
 	append_log("[系统] 少女将自动探索间隔调整为 %d 秒。" % clamped_seconds)
