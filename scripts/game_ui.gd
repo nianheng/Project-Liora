@@ -130,6 +130,11 @@ var pause_overlay: ColorRect
 var pause_label: Label
 var auto_explore_min_spin: SpinBox
 var auto_explore_max_spin: SpinBox
+var comms_log_entry_count := 0
+const COMMS_PLAYER_COLOR := "#F2F5FF"
+const COMMS_GIRL_COLOR := "#C9E7FF"
+const COMMS_SYSTEM_COLOR := "#8FA6BC"
+const COMMS_DEFAULT_COLOR := "#F2F5FF"
 var detail_title_label: Label
 var detail_description_label: Label
 var detail_meta_label: Label
@@ -156,7 +161,8 @@ func _ready() -> void:
 	resized.connect(_on_ui_resized)
 	setup_world_timer()
 	render_graph_data()
-	comms_log.text = ""
+	comms_log.clear()
+	comms_log_entry_count = 0
 	call_deferred("play_first_contact_intro")
 	set_process_unhandled_input(true)
 	call_deferred("_apply_split_offsets")
@@ -1292,13 +1298,43 @@ func make_panel_style(fill: Color, radius: int, border: Color) -> StyleBoxFlat:
 	return style
 
 
-func append_log(message: String) -> void:
+func append_log(message: String, speaker_kind: String = "") -> void:
 	if not show_system_messages and message.begins_with("[系统]"):
 		return
-	if comms_log.text.is_empty():
-		comms_log.text = message
-	else:
-		comms_log.text += "\n\n" + message
+	if comms_log_entry_count > 0:
+		comms_log.add_text("\n\n")
+	comms_log.push_color(Color.html(_get_comms_message_color(message, speaker_kind)))
+	comms_log.add_text(message)
+	comms_log.pop()
+	comms_log_entry_count += 1
+	comms_log.scroll_to_line(max(comms_log.get_line_count() - 1, 0))
+
+
+func _get_comms_message_color(message: String, speaker_kind: String = "") -> String:
+	match speaker_kind:
+		"system":
+			return COMMS_SYSTEM_COLOR
+		"player":
+			return COMMS_PLAYER_COLOR
+		"girl":
+			return COMMS_GIRL_COLOR
+	var speaker_tag := _extract_comms_speaker_tag(message)
+	if speaker_tag == "系统":
+		return COMMS_SYSTEM_COLOR
+	if speaker_tag == player_display_name or speaker_tag == "You":
+		return COMMS_PLAYER_COLOR
+	if speaker_tag == girl_display_name or speaker_tag == "Liora":
+		return COMMS_GIRL_COLOR
+	return COMMS_DEFAULT_COLOR
+
+
+func _extract_comms_speaker_tag(message: String) -> String:
+	if not message.begins_with("["):
+		return ""
+	var closing_index := message.find("]")
+	if closing_index <= 1:
+		return ""
+	return message.substr(1, closing_index - 1)
 
 
 func get_system_log_toggle_text() -> String:
@@ -1355,7 +1391,8 @@ func finish_travel() -> void:
 		"已抵达 %s，现在可以开始观察周围环境。" % str(world_graph.get_current_location().get("name", world_graph.current_location_id)),
 		{
 			"location_id": world_graph.current_location_id,
-			"location_name": str(world_graph.get_current_location().get("name", world_graph.current_location_id))
+			"location_name": str(world_graph.get_current_location().get("name", world_graph.current_location_id)),
+			"visible_routes": build_visible_routes_snapshot(world_graph.current_location_id)
 		}
 	)
 	dispatch_system_event(arrival_event)
@@ -1476,17 +1513,7 @@ func build_agent_context(trigger_type: String = AgentContextScript.TRIGGER_PLAYE
 		context.current_location_id = world_graph.current_location_id
 		context.current_location_name = str(world_graph.get_current_location().get("name", world_graph.current_location_id))
 
-	for neighbor in world_graph.get_neighbors(world_graph.current_location_id):
-		var neighbor_id: String = str(neighbor.get("to_id", ""))
-		var travel_result: Dictionary = world_graph.can_travel(world_graph.current_location_id, neighbor_id, unlocked_requirements)
-		context.visible_routes.append({
-			"to_location_id": neighbor_id,
-			"to_location_name": neighbor.get("to_name", neighbor_id),
-			"direction_label": neighbor.get("direction_label", ""),
-			"travel_time_seconds": int(neighbor.get("travel_time", 0)) * 60,
-			"allowed": bool(travel_result.get("allowed", false)),
-			"reasons": travel_result.get("reasons", [])
-		})
+	context.visible_routes = build_visible_routes_snapshot(world_graph.current_location_id)
 
 	return context
 
@@ -1651,7 +1678,7 @@ func display_girl_reply_lines(reply_text: String, trigger_label: String, request
 		var normalized_trigger_label := trigger_label
 		if trigger_label == "[少女]" or trigger_label == "[Liora]" or trigger_label == "[-----]":
 			normalized_trigger_label = get_girl_speaker_prefix()
-		append_log("%s %s" % [normalized_trigger_label, line])
+		append_log("%s %s" % [normalized_trigger_label, line], "girl")
 		append_girl_memory_reply_line(line)
 
 func apply_player_name_if_detected(candidate_name: String) -> void:
@@ -1675,7 +1702,7 @@ func build_player_name_extraction_source() -> String:
 
 func append_scripted_girl_line(line_text: String) -> void:
 	update_girl_display_identity_from_text(line_text)
-	append_log("%s %s" % [get_girl_speaker_prefix(), line_text])
+	append_log("%s %s" % [get_girl_speaker_prefix(), line_text], "girl")
 	append_girl_memory_reply_line(line_text)
 
 
@@ -1708,6 +1735,22 @@ func build_system_event_memory_entry_from_snapshot(event_data: Dictionary) -> St
 		"事件摘要: %s" % str(event_data.get("summary_text", "")),
 		"事件载荷: %s" % JSON.stringify(event_data.get("payload", {}))
 	])
+
+
+func build_visible_routes_snapshot(from_location_id: String) -> Array[Dictionary]:
+	var routes: Array[Dictionary] = []
+	for neighbor in world_graph.get_neighbors(from_location_id):
+		var neighbor_id: String = str(neighbor.get("to_id", ""))
+		var travel_result: Dictionary = world_graph.can_travel(from_location_id, neighbor_id, unlocked_requirements)
+		routes.append({
+			"to_location_id": neighbor_id,
+			"to_location_name": str(neighbor.get("to_name", neighbor_id)),
+			"direction_label": str(neighbor.get("direction_label", "")),
+			"travel_time_seconds": int(neighbor.get("travel_time", 0)) * 60,
+			"allowed": bool(travel_result.get("allowed", false)),
+			"reasons": travel_result.get("reasons", [])
+		})
+	return routes
 
 
 func build_consumed_request_memory_entries(context, source_memory_entry: String) -> Array[String]:
@@ -2268,7 +2311,7 @@ func _on_send_pressed() -> void:
 	var message := input_box.text.strip_edges()
 	if message.is_empty():
 		return
-	append_log("%s %s" % [get_player_speaker_prefix(), message])
+	append_log("%s %s" % [get_player_speaker_prefix(), message], "player")
 	if not prologue_contact_confirmed:
 		prologue_contact_confirmed = true
 		objective_label.text = "目标：完成首次通讯，帮助少女确认飞船内部现状。"
@@ -2294,7 +2337,7 @@ func process_pending_system_events() -> void:
 	start_system_event_agent_request(next_event)
 
 func _on_quick_action(action_text: String) -> void:
-	append_log("[玩家] " + action_text)
+	append_log("[玩家] " + action_text, "player")
 	append_log("[系统] 已记录快捷动作，后续可以在这里接入专门的动作解析器。")
 
 
