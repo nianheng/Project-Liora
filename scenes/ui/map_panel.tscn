@@ -1,0 +1,183 @@
+[gd_scene load_steps=5 format=3 uid="uid://bbc8dw4idjuw"]
+
+[ext_resource type="Script" uid="uid://d1wynj1an4v3m" path="res://scripts/ui/map_graph_view.gd" id="1_graph"]
+[ext_resource type="Texture2D" uid="uid://7fgggjvac8b1" path="res://assets/map_pictures/map1_background.png" id="2_background"]
+[ext_resource type="Script" path="res://scripts/ui/map_highlight_overlay.gd" id="3_highlight"]
+[ext_resource type="Script" uid="uid://byi7nb5xh0mp1" path="res://scripts/ui/map_panel.gd" id="4_panel"]
+
+[node name="MapPanel" type="PanelContainer" unique_id=866238097]
+custom_minimum_size = Vector2(0, 260)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("4_panel")
+
+[node name="ContentMargin" type="MarginContainer" parent="." unique_id=283014337]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 18
+
+[node name="PanelContentScroll" type="ScrollContainer" parent="ContentMargin" unique_id=1805137371]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Column" type="VBoxContainer" parent="ContentMargin/PanelContentScroll" unique_id=926791981]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SectionTitle" type="VBoxContainer" parent="ContentMargin/PanelContentScroll/Column" unique_id=85528601]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="ContentMargin/PanelContentScroll/Column/SectionTitle" unique_id=1173033814]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "地图与地点"
+
+[node name="Subtitle" type="Label" parent="ContentMargin/PanelContentScroll/Column/SectionTitle" unique_id=569338321]
+modulate = Color(0.556863, 0.654902, 0.745098, 1)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "将鼠标移动到地点或道路上可查看探索与通行信息。"
+autowrap_mode = 3
+clip_text = true
+max_lines_visible = 2
+
+[node name="Separator" type="HSeparator" parent="ContentMargin/PanelContentScroll/Column/SectionTitle" unique_id=972225238]
+layout_mode = 2
+
+[node name="MapSummaryLabel" type="Label" parent="ContentMargin/PanelContentScroll/Column" unique_id=1857887847]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="MapScroll" type="ScrollContainer" parent="ContentMargin/PanelContentScroll/Column" unique_id=1753862652]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(640, 360)
+layout_mode = 2
+size_flags_horizontal = 4
+horizontal_scroll_mode = 2
+vertical_scroll_mode = 2
+
+[node name="MapCanvas" type="Control" parent="ContentMargin/PanelContentScroll/Column/MapScroll" unique_id=1063956206]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(640, 854.564)
+layout_mode = 2
+
+[node name="BackgroundTexture" type="TextureRect" parent="ContentMargin/PanelContentScroll/Column/MapScroll/MapCanvas" unique_id=1917566702]
+unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0.48)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("2_background")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="MapHighlightOverlay" type="Control" parent="ContentMargin/PanelContentScroll/Column/MapScroll/MapCanvas"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_highlight")
+
+[node name="MapGraphView" type="Control" parent="ContentMargin/PanelContentScroll/Column/MapScroll/MapCanvas" unique_id=2107468398]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_graph")
+
+[node name="MapNodeLayer" type="Control" parent="ContentMargin/PanelContentScroll/Column/MapScroll/MapCanvas" unique_id=1176563491]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 1.0
+offset_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="MapLowerSplit" type="HSplitContainer" parent="ContentMargin/PanelContentScroll/Column" unique_id=252654746]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DetailPanel" type="PanelContainer" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit" unique_id=2018812495]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="DetailMargin" type="MarginContainer" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/DetailPanel" unique_id=2027601788]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 14
+
+[node name="DetailColumn" type="VBoxContainer" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/DetailPanel/DetailMargin" unique_id=846148223]
+layout_mode = 2
+
+[node name="DetailTitleLabel" type="Label" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/DetailPanel/DetailMargin/DetailColumn" unique_id=1683622154]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+autowrap_mode = 3
+
+[node name="DetailMetaLabel" type="Label" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/DetailPanel/DetailMargin/DetailColumn" unique_id=1068156860]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="DetailDescriptionLabel" type="Label" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/DetailPanel/DetailMargin/DetailColumn" unique_id=1176449188]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+autowrap_mode = 3
+
+[node name="ContentPanel" type="PanelContainer" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit" unique_id=807805821]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="ContentMargin" type="MarginContainer" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/ContentPanel" unique_id=1368186194]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 14
+
+[node name="ContentColumn" type="VBoxContainer" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/ContentPanel/ContentMargin" unique_id=135243841]
+layout_mode = 2
+
+[node name="ContentHeader" type="Label" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/ContentPanel/ContentMargin/ContentColumn" unique_id=400865931]
+modulate = Color(0.556863, 0.654902, 0.745098, 1)
+layout_mode = 2
+text = "地点内容"
+
+[node name="DetailObjectList" type="ItemList" parent="ContentMargin/PanelContentScroll/Column/MapLowerSplit/ContentPanel/ContentMargin/ContentColumn" unique_id=690978989]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 120)
+layout_mode = 2
+size_flags_vertical = 3

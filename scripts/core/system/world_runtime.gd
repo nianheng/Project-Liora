@@ -73,8 +73,7 @@ func advance_world_time(delta_seconds: int, emit_log: bool = false) -> void:
 	if is_traveling():
 		host.travel_remaining_seconds -= delta_seconds
 		host.seconds_since_last_agent_exchange = 0
-		host.render_location_detail()
-		host.render_clues()
+		host.render_map_panel()
 		if host.travel_remaining_seconds <= 0:
 			finish_travel()
 		elif emit_log:
