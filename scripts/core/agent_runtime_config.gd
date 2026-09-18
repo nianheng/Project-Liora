@@ -4,12 +4,16 @@ class_name AgentRuntimeConfig
 const MODE_TEST := "test"
 const MODE_LLM := "llm"
 
+const API_PROTOCOL_OPENAI := "openai"
+const API_PROTOCOL_GEMINI := "gemini"
+
 const LOCAL_CONFIG_PATH := "res://agent_runtime.local.json"
 
 const DEFAULT_ACTIVE_MODE := MODE_TEST
 const DEFAULT_API_BASE_URL := ""
 const DEFAULT_API_KEY := ""
-const DEFAULT_MODEL_NAME := "gemini-3-flash-preview"
+const DEFAULT_API_PROTOCOL := API_PROTOCOL_OPENAI
+const DEFAULT_MODEL_NAME := ""
 const DEFAULT_REQUEST_TIMEOUT_MS := 60000
 
 static var _config_loaded := false
@@ -52,6 +56,15 @@ static func get_api_key() -> String:
 	return str(_local_config.get("api_key", DEFAULT_API_KEY)).strip_edges()
 
 
+static func get_api_protocol() -> String:
+	_ensure_local_config_loaded()
+	var configured_protocol := str(_local_config.get("api_protocol", DEFAULT_API_PROTOCOL)).strip_edges().to_lower()
+	if configured_protocol == API_PROTOCOL_OPENAI or configured_protocol == API_PROTOCOL_GEMINI:
+		return configured_protocol
+	push_warning("AgentRuntimeConfig unknown api_protocol '%s'; using '%s'." % [configured_protocol, DEFAULT_API_PROTOCOL])
+	return DEFAULT_API_PROTOCOL
+
+
 static func get_model_name() -> String:
 	_ensure_local_config_loaded()
 	return str(_local_config.get("model_name", DEFAULT_MODEL_NAME)).strip_edges()
@@ -63,4 +76,9 @@ static func get_request_timeout_ms() -> int:
 
 
 static func is_llm_mode() -> bool:
-	return get_active_mode() == MODE_LLM and not get_api_base_url().is_empty() and not get_api_key().is_empty()
+	return (
+		get_active_mode() == MODE_LLM
+		and not get_api_base_url().is_empty()
+		and not get_api_key().is_empty()
+		and not get_model_name().is_empty()
+	)

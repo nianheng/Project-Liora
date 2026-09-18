@@ -64,6 +64,8 @@ func build_system_prompt(context = null) -> String:
 	var interval_hint := _format_auto_explore_interval_hint(context)
 	var instruction_block := "\n".join([
 		"Reply naturally and in character.",
+		"除非玩家明确要求使用其他语言，否则 reply_text 必须使用自然、口语化的简体中文。",
+		"不要因为系统指令中包含英文而切换成英文；角色名、编号、JSON 字段名和必要的专有名词可以保留原文。",
 		"You are chatting through a handheld communication terminal, not writing a monologue or report.",
 		"Your reply_text must feel like manually typed live chat messages.",
 		"Keep reply_text to 1 to 5 sentences total.",
@@ -342,7 +344,7 @@ func _format_interrupted_system_event_lines(events: Array) -> Array[String]:
 
 func _build_request_payload_from_prompt(prompt_text: String, system_prompt_override: String = "") -> Dictionary:
 	var final_system_prompt := build_system_prompt() if system_prompt_override.strip_edges().is_empty() else system_prompt_override
-	if _is_gemini_model():
+	if _uses_gemini_protocol():
 		return {
 			"systemInstruction": {
 				"parts": [
@@ -521,6 +523,7 @@ func _write_llm_log(request_kind: String, started_at: Dictionary, payload: Dicti
 		"started_at": started_at.get("iso", ""),
 		"ended_at": ended_at.get("iso", ""),
 		"endpoint": _build_endpoint_url(),
+		"api_protocol": RuntimeConfig.get_api_protocol(),
 		"model": RuntimeConfig.get_model_name(),
 		"request": payload.duplicate(true),
 		"response": response.duplicate(true)
@@ -585,7 +588,7 @@ func _wait_for_http_status(client: HTTPClient, accepted_statuses: Array[int]) ->
 
 
 func _parse_response_to_output(response_body: Dictionary, message: String, world_graph: WorldGraph) -> AgentOutput:
-	if _is_gemini_model():
+	if _uses_gemini_protocol():
 		return _parse_gemini_response_to_output(response_body, message, world_graph)
 
 	var output := AgentOutput.new()
@@ -639,7 +642,7 @@ func _parse_gemini_response_to_output(response_body: Dictionary, message: String
 
 
 func _parse_name_extraction_response(response_body: Dictionary) -> String:
-	if _is_gemini_model():
+	if _uses_gemini_protocol():
 		var candidates: Array = response_body.get("candidates", [])
 		if candidates.is_empty():
 			return ""
@@ -732,7 +735,7 @@ func _append_commands_from_payload(output: AgentOutput, commands_variant: Varian
 
 func _build_endpoint_url() -> String:
 	var base_url: String = RuntimeConfig.get_api_base_url().trim_suffix("/")
-	if _is_gemini_model():
+	if _uses_gemini_protocol():
 		var gemini_base_url: String = base_url
 		if gemini_base_url.ends_with("/v1"):
 			gemini_base_url = gemini_base_url.trim_suffix("/v1")
@@ -752,8 +755,8 @@ func _load_persona_prompt() -> String:
 	return str((parsed as Dictionary).get("persona_prompt", "")).strip_edges()
 
 
-func _is_gemini_model() -> bool:
-	return RuntimeConfig.get_model_name().begins_with("gemini-")
+func _uses_gemini_protocol() -> bool:
+	return RuntimeConfig.get_api_protocol() == RuntimeConfig.API_PROTOCOL_GEMINI
 
 
 func _build_fallback_output(message: String, world_graph: WorldGraph) -> AgentOutput:
